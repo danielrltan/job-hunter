@@ -25,11 +25,10 @@ function formatJob(job: Job): string {
         .join(" · ")}</i>`
     : `🎯 <b>${escapeHtml(name)}</b>`;
 
-  // The role is what decides whether to click, so it carries the weight.
-  const lines = [
-    heading,
-    `<a href="${escapeHtml(job.url)}"><b>${escapeHtml(job.title)}</b></a>`,
-  ];
+  // The title is a link, and a link is already coloured. Bolding it too made it
+  // out-compete the company above it, which is the line you actually scan for.
+  // Bold stays on the company alone so it wins its block outright.
+  const lines = [heading, `<a href="${escapeHtml(job.url)}">${escapeHtml(job.title)}</a>`];
 
   if (job.locations.length) {
     lines.push(`📍 ${escapeHtml(job.locations.slice(0, 3).join(" · "))}`);

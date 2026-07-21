@@ -148,9 +148,24 @@ describe("notification formatting", () => {
     expect(message).not.toMatch(/<blockquote>(?:(?!<\/blockquote>)[\s\S])*<blockquote>/);
   });
 
-  it("bolds the role, so it reads before the company", () => {
-    const [message] = buildMessages([job("Google", "ML Engineer Intern")]);
-    expect(message).toContain("<b>ML Engineer Intern</b></a>");
+  /**
+   * The company is the only bold thing in a block. The title sits right under
+   * it as a link, and a link is already coloured — bolding both left the
+   * company looking like the weaker of the two.
+   */
+  it("keeps bold on the company and off the linked title", () => {
+    const [message] = buildMessages([job("Shopify", "ML Engineer Intern")]);
+    expect(message).toContain("<b>Shopify</b>");
+    expect(message).toContain(">ML Engineer Intern</a>");
+    expect(message).not.toContain("<b>ML Engineer Intern</b>");
+  });
+
+  it("bolds every company, tiered or not", () => {
+    for (const company of ["Google", "Stripe", "Jane Street", "Some Startup"]) {
+      const [message] = buildMessages([job(company)]);
+      const shown = company === "Google" ? "GOOGLE" : company;
+      expect(message).toContain(`<b>${shown}</b>`);
+    }
   });
 
   it("heads the batch without an emoji", () => {
