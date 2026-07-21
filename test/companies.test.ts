@@ -132,4 +132,32 @@ describe("notification formatting", () => {
     const [message] = buildMessages([job("A<b> & Co")]);
     expect(message).toContain("A&lt;b&gt; &amp; Co");
   });
+
+  /**
+   * Telegram offers no cards or colours — a blockquote's vertical rule is the
+   * only way to show where one listing ends and the next begins.
+   */
+  it("wraps each listing in its own blockquote", () => {
+    const [message] = buildMessages([job("Google"), job("Stripe")]);
+    expect(message!.match(/<blockquote>/g)).toHaveLength(2);
+    expect(message!.match(/<\/blockquote>/g)).toHaveLength(2);
+  });
+
+  it("never nests blockquotes, which Telegram rejects", () => {
+    const [message] = buildMessages([job("Google"), job("Stripe"), job("Shopify")]);
+    expect(message).not.toMatch(/<blockquote>(?:(?!<\/blockquote>)[\s\S])*<blockquote>/);
+  });
+
+  it("bolds the role, so it reads before the company", () => {
+    const [message] = buildMessages([job("Google", "ML Engineer Intern")]);
+    expect(message).toContain("<b>ML Engineer Intern</b></a>");
+  });
+
+  it("heads the batch without an emoji", () => {
+    const [one] = buildMessages([job("Google")]);
+    const [many] = buildMessages([job("Google"), job("Stripe")]);
+    expect(one).toMatch(/^<b>New internship<\/b>/);
+    expect(many).toMatch(/^<b>2 new internships<\/b>/);
+    expect(many).not.toContain("🆕");
+  });
 });

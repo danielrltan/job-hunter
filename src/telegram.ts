@@ -25,7 +25,11 @@ function formatJob(job: Job): string {
         .join(" · ")}</i>`
     : `🎯 <b>${escapeHtml(name)}</b>`;
 
-  const lines = [heading, `<a href="${escapeHtml(job.url)}">${escapeHtml(job.title)}</a>`];
+  // The role is what decides whether to click, so it carries the weight.
+  const lines = [
+    heading,
+    `<a href="${escapeHtml(job.url)}"><b>${escapeHtml(job.title)}</b></a>`,
+  ];
 
   if (job.locations.length) {
     lines.push(`📍 ${escapeHtml(job.locations.slice(0, 3).join(" · "))}`);
@@ -37,7 +41,11 @@ function formatJob(job: Job): string {
   if (job.sponsorship === "Offers Sponsorship") lines.push("✅ Offers sponsorship");
   lines.push(`<i>via ${escapeHtml(job.sourceLabel)}</i>`);
 
-  return lines.join("\n");
+  // A blockquote draws a vertical rule down the left of the whole block, which
+  // is what separates one listing from the next when several arrive together.
+  // It is the only container Telegram offers — there are no cards or colours —
+  // and blockquotes cannot nest, so this must stay the outermost tag.
+  return `<blockquote>${lines.join("\n")}</blockquote>`;
 }
 
 /** Group jobs into messages that respect Telegram's length limit. */
@@ -64,26 +72,60 @@ export function buildMessages(unsorted: Job[]): string[] {
   }
   flush();
 
-  const header = jobs.length === 1 ? "🆕 New internship" : `🆕 ${jobs.length} new internships`;
-  return messages.map((m, i) => (i === 0 ? `${header}\n\n${m}` : m));
+  const header = jobs.length === 1 ? "New internship" : `${jobs.length} new internships`;
+  return messages.map((m, i) => (i === 0 ? `<b>${header}</b>\n\n${m}` : m));
 }
 
-export async function sendMessage(text: string, botToken: string, chatId: string): Promise<void> {
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+/** Last-resort rendering of a message Telegram refused to parse. */
+export function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
+}
+
+function post(text: string, botToken: string, chatId: string, formatted: boolean): Promise<Response> {
+  return fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: chatId,
       text,
-      parse_mode: "HTML",
+      ...(formatted ? { parse_mode: "HTML" } : {}),
       disable_web_page_preview: true,
       link_preview_options: { is_disabled: true },
     }),
   });
+}
 
-  if (!res.ok) {
-    throw new Error(`telegram sendMessage failed: ${res.status} ${await res.text()}`);
+export async function sendMessage(text: string, botToken: string, chatId: string): Promise<void> {
+  const res = await post(text, botToken, chatId, true);
+  if (res.ok) return;
+
+  const detail = await res.text();
+
+  /**
+   * A 400 is Telegram rejecting the message itself — nearly always the
+   * formatting — and it will reject the identical retry just as surely.
+   *
+   * That matters more than it looks. Commit state is saved only after a send
+   * succeeds, so a permanently unsendable message doesn't fail once: it wedges
+   * the next tick, and every tick after it, on the same listing. One unlucky
+   * character in a job title would silently end all notifications. Falling back
+   * to unformatted text keeps the listing deliverable and the queue moving.
+   */
+  if (res.status === 400) {
+    const plain = await post(stripHtml(text), botToken, chatId, false);
+    if (plain.ok) return;
+    throw new Error(
+      `telegram rejected both formatted and plain text: ${res.status} ${detail}`,
+    );
   }
+
+  // Anything else (429, 5xx) is worth retrying with the same message next tick.
+  throw new Error(`telegram sendMessage failed: ${res.status} ${detail}`);
 }
 
 export async function notify(jobs: Job[], botToken: string, chatId: string): Promise<number> {
