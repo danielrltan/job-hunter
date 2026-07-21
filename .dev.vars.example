@@ -1,0 +1,6 @@
+# Copy to .dev.vars for local development. Never commit .dev.vars.
+# In production these are set with `wrangler secret put <NAME>`.
+GITHUB_TOKEN=""
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_CHAT_ID=""
+ADMIN_KEY=""

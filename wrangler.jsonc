@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "job-hunter",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-19",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Every 2 minutes. Most ticks are a no-op (GitHub reports "no new commits"),
+  // so this is cheap: ~720 invocations/day against a 100k/day free-tier budget.
+  "triggers": {
+    "crons": ["*/2 * * * *"]
+  },
+
+  "kv_namespaces": [
+    {
+      "binding": "STATE",
+      "id": "1266b5a114d447ed93751ad15948a588"
+    }
+  ],
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

@@ -1,0 +1,230 @@
+@@ -333273,7 +333273,7 @@
+         "company_name": "LexisNexis Risk Solutions",
+         "id": "3d5030c9-5b53-4ead-8664-250c3688b6ee",
+         "title": "Editorial Data Reporting Intern",
+-        "active": true,
++        "active": false,
+         "terms": [
+             "Fall 2026"
+         ],
+@@ -339510,5 +339510,219 @@
+         "is_visible": true,
+         "sponsorship": "Other",
+         "degrees": []
++    },
++    {
++        "source": "Simplify",
++        "category": "Quant",
++        "company_name": "PGIM",
++        "id": "ae61434b-9142-44d7-96d5-7e8a5731372f",
++        "title": "Real Estate - Equity Investment Analyst Program",
++        "active": true,
++        "terms": [
++            "N/A"
++        ],
++        "date_updated": 1784499400,
++        "date_posted": 1784419200,
++        "url": "https://pru.wd5.myworkdayjobs.com/pgim_careers/job/Newark-NJ-USA/PGIM--2027-Real-Estate--Equity-Investment-Analyst-Program_R-124631",
++        "locations": [
++            "SF",
++            "Newark, NJ",
++            "Chicago, IL",
++            "NYC",
++            "Atlanta, GA"
++        ],
++        "company_url": "https://simplify.jobs/c/PGIM",
++        "is_visible": true,
++        "sponsorship": "Other",
++        "degrees": [
++            "Bachelor's"
++        ]
++    },
++    {
++        "source": "Simplify",
++        "category": "Quant",
++        "company_name": "Prudential Financial",
++        "id": "80b3432f-f7a2-4886-bda6-698e860df082",
++        "title": "Real Estate Originations Investment Analyst Program",
++        "active": true,
++        "terms": [
++            "Summer 2027"
++        ],
++        "date_updated": 1784499376,
++        "date_posted": 1784419200,
++        "url": "https://pru.wd5.myworkdayjobs.com/Careers/job/New-York-2-Manhattan-West/PGIM--2027-Real-Estate--Originations-Summer-Investment-Analyst-Program_R-124635-1",
++        "locations": [
++            "SF",
++            "LA",
++            "Dallas, TX",
++            "Chicago, IL",
++            "Arlington, VA",
++            "NYC",
++            "Atlanta, GA"
++        ],
++        "company_url": "https://simplify.jobs/c/Prudential-Financial",
++        "is_visible": true,
++        "sponsorship": "Other",
++        "degrees": [
++            "Bachelor's"
++        ]
++    },
++    {
++        "source": "Simplify",
++        "category": "Quant",
++        "company_name": "PGIM",
++        "id": "68ceeffa-36f0-4cd6-9256-42fd6f4f016d",
++        "title": "Real Estate Equity Investment Analyst Program",
++        "active": true,
++        "terms": [
++            "Summer 2027"
++        ],
++        "date_updated": 1784499369,
++        "date_posted": 1784419200,
++        "url": "https://pru.wd5.myworkdayjobs.com/pgim_careers/job/Newark-NJ-USA/PGIM--2027-Real-Estate--Equity-Summer-Investment-Analyst-Program_R-124634",
++        "locations": [
++            "SF",
++            "Newark, NJ",
++            "Chicago, IL",
++            "NYC",
++            "Atlanta, GA"
++        ],
++        "company_url": "https://simplify.jobs/c/PGIM",
++        "is_visible": true,
++        "sponsorship": "Other",
++        "degrees": [
++            "Bachelor's"
++        ]
++    },
++    {
++        "source": "Simplify",
++        "category": "Quant",
++        "company_name": "PGIM",
++        "id": "5a269be3-70f1-404a-9253-05cad76cc524",
++        "title": "Real Estate \u2013 Agency Investment Analyst Program",
++        "active": true,
++        "terms": [
++            "Summer 2027"
++        ],
++        "date_updated": 1784499367,
++        "date_posted": 1784419200,
++        "url": "https://pru.wd5.myworkdayjobs.com/pgim_careers/job/3901-N-Fairfax-Drive/PGIM--2027-Real-Estate--Agency-Summer-Investment-Analyst-Program_R-124636",
++        "locations": [
++            "Chicago, IL",
++            "Arlington, VA"
++        ],
++        "company_url": "https://simplify.jobs/c/PGIM",
++        "is_visible": true,
++        "sponsorship": "Other",
++        "degrees": [
++            "Bachelor's"
++        ]
++    },
++    {
++        "source": "Simplify",
++        "category": "Quant",
++        "company_name": "PGIM",
++        "id": "06633e4b-4d98-4a80-a791-5dc0f248390f",
++        "title": "Real Estate Originations Investment Analyst Program",
++        "active": true,
++        "terms": [
++            "Summer 2027"
++        ],
++        "date_updated": 1784499371,
++        "date_posted": 1784419200,
++        "url": "https://pru.wd5.myworkdayjobs.com/pgim_careers/job/New-York-2-Manhattan-West/PGIM--2027-Real-Estate--Originations-Summer-Investment-Analyst-Program_R-124635-2",
++        "locations": [
++            "SF",
++            "LA",
++            "Dallas, TX",
++            "Chicago, IL",
++            "Arlington, VA",
++            "NYC",
++            "Atlanta, GA"
++        ],
++        "company_url": "https://simplify.jobs/c/PGIM",
++        "is_visible": true,
++        "sponsorship": "Other",
++        "degrees": [
++            "Bachelor's"
++        ]
++    },
++    {
++        "source": "Simplify",
++        "category": "Quant",
++        "company_name": "Prudential Financial",
++        "id": "d1a12763-bd6a-435c-bc94-05274ad822f1",
++        "title": "Real Estate Equity Investment Analyst Program",
++        "active": true,
++        "terms": [
++            "Summer 2027"
++        ],
++        "date_updated": 1784499130,
++        "date_posted": 1784419200,
++        "url": "https://pru.wd5.myworkdayjobs.com/Careers/job/Newark-NJ-USA/PGIM--2027-Real-Estate--Equity-Summer-Investment-Analyst-Program_R-124634-2",
++        "locations": [
++            "SF",
++            "Newark, NJ",
++            "Chicago, IL",
++            "NYC",
++            "Atlanta, GA"
++        ],
++        "company_url": "https://simplify.jobs/c/Prudential-Financial",
++        "is_visible": true,
++        "sponsorship": "Other",
++        "degrees": [
++            "Bachelor's"
++        ]
++    },
++    {
++        "source": "Simplify",
++        "category": "Quant",
++        "company_name": "Prudential Financial",
++        "id": "9f4e4614-b132-4a36-8ec6-51a051c0ef58",
++        "title": "Real Estate - Equity Investment Analyst Program",
++        "active": true,
++        "terms": [
++            "N/A"
++        ],
++        "date_updated": 1784499101,
++        "date_posted": 1784419200,
++        "url": "https://pru.wd5.myworkdayjobs.com/Careers/job/Newark-NJ-USA/PGIM--2027-Real-Estate--Equity-Investment-Analyst-Program_R-124631-2",
++        "locations": [
++            "SF",
++            "Newark, NJ",
++            "Chicago, IL",
++            "NYC",
++            "Atlanta, GA"
++        ],
++        "company_url": "https://simplify.jobs/c/Prudential-Financial",
++        "is_visible": true,
++        "sponsorship": "Other",
++        "degrees": [
++            "Bachelor's"
++        ]
++    },
++    {
++        "source": "Simplify",
++        "category": "Quant",
++        "company_name": "Prudential Financial",
++        "id": "849baafe-bf8b-4ebd-babd-b2a9b6f0e628",
++        "title": "Real Estate \u2013 Agency Investment Analyst Program",
++        "active": true,
++        "terms": [
++            "Summer 2027"
++        ],
++        "date_updated": 1784499103,
++        "date_posted": 1784419200,
++        "url": "https://pru.wd5.myworkdayjobs.com/Careers/job/3901-N-Fairfax-Drive/PGIM--2027-Real-Estate--Agency-Summer-Investment-Analyst-Program_R-124636-2",
++        "locations": [
++            "Chicago, IL",
++            "Arlington, VA"
++        ],
++        "company_url": "https://simplify.jobs/c/Prudential-Financial",
++        "is_visible": true,
++        "sponsorship": "Other",
++        "degrees": [
++            "Bachelor's"
++        ]
+     }
+ ]
+\ No newline at end of file
