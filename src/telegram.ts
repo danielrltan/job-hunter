@@ -71,8 +71,14 @@ export function buildMessages(unsorted: Job[]): string[] {
   }
   flush();
 
-  const header = jobs.length === 1 ? "New internship" : `${jobs.length} new internships`;
-  return messages.map((m, i) => (i === 0 ? `<b>${header}</b>\n\n${m}` : m));
+  // The batch is sorted most-notable-first, so the lead job carries the best
+  // tier in the drop. Mirroring its emoji onto the header advertises a Big Tech
+  // (⭐) — or otherwise notable — listing from the header alone, before you
+  // scroll into the blockquotes. Most drops are unknown companies and stay bare.
+  const topTier = matchTiers(jobs[0]?.company ?? "")[0];
+  const noun = jobs.length === 1 ? "New internship" : `${jobs.length} new internships`;
+  const header = topTier ? `${topTier.emoji} <b>${noun}</b>` : `<b>${noun}</b>`;
+  return messages.map((m, i) => (i === 0 ? `${header}\n\n${m}` : m));
 }
 
 /** Last-resort rendering of a message Telegram refused to parse. */

@@ -168,11 +168,25 @@ describe("notification formatting", () => {
     }
   });
 
-  it("heads the batch without an emoji", () => {
-    const [one] = buildMessages([job("Google")]);
-    const [many] = buildMessages([job("Google"), job("Stripe")]);
+  it("flags the header with the batch's most notable tier", () => {
+    // A Big Tech listing earns the ⭐ from the header alone.
+    const [bigTech] = buildMessages([job("Google")]);
+    expect(bigTech).toMatch(/^⭐ <b>New internship<\/b>/);
+
+    // No Big Tech, but a Top Tech company is still worth surfacing (🔥).
+    const [topTech] = buildMessages([job("Stripe")]);
+    expect(topTech).toMatch(/^🔥 <b>New internship<\/b>/);
+
+    // The strongest tier in a mixed batch wins the header — Google (⭐) over
+    // Stripe (🔥), never both — since the batch is sorted most-notable-first.
+    const [mixed] = buildMessages([job("Stripe"), job("Google")]);
+    expect(mixed).toMatch(/^⭐ <b>2 new internships<\/b>/);
+  });
+
+  it("leaves an all-unknown batch's header bare", () => {
+    const [one] = buildMessages([job("Some Startup")]);
+    const [many] = buildMessages([job("Some Startup"), job("Local Shop")]);
     expect(one).toMatch(/^<b>New internship<\/b>/);
     expect(many).toMatch(/^<b>2 new internships<\/b>/);
-    expect(many).not.toContain("🆕");
   });
 });
