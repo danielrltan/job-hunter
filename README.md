@@ -95,12 +95,14 @@ npm run deploy
 
 **5. Verify**
 
-Deployed at **https://job-hunter.searchcn.workers.dev**
+`npm run deploy` prints your Worker's URL — it looks like
+**`https://job-hunter.<your-subdomain>.workers.dev`**, where `<your-subdomain>`
+is your Cloudflare account's `workers.dev` subdomain. Use that URL below.
 
 ```bash
-curl "https://job-hunter.searchcn.workers.dev/health"                       # expect ready: true
-curl "https://job-hunter.searchcn.workers.dev/test?key=$ADMIN_KEY"          # expect a Telegram message
-curl "https://job-hunter.searchcn.workers.dev/run?key=$ADMIN_KEY"           # force a tick
+curl "https://job-hunter.<your-subdomain>.workers.dev/health"                       # expect ready: true
+curl "https://job-hunter.<your-subdomain>.workers.dev/test?key=$ADMIN_KEY"          # expect a Telegram message
+curl "https://job-hunter.<your-subdomain>.workers.dev/run?key=$ADMIN_KEY"           # force a tick
 ```
 
 On Windows use `curl.exe`, not `curl` — PowerShell aliases the latter to
