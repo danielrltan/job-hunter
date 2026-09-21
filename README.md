@@ -198,6 +198,9 @@ made.
 | `get_change_log` | every filter edit — yours and the agent's |
 | `preview_filters` | dry run: what a proposed edit would newly match or drop |
 | `add_include`, `add_exclude`, `remove_phrase`, `set_terms`, `set_paused` | edits |
+| `get_new_jobs` | the application queue: sent listings not yet handled, oldest first; claims them |
+| `update_application` | record an outcome: `needs_review`, `submitted`, `skipped`, `failed` |
+| `list_applications` | applications by status, with counts |
 
 Guardrails, because an agent that quietly over-excludes would look exactly
 like a slow hiring week:
@@ -206,6 +209,12 @@ like a slow hiring week:
   undoes it.
 - Every edit needs a reason and lands in the change log; each list is capped.
 - There is deliberately no reset tool.
+
+**Applying.** Every sent listing also lands in a queue for the agent to fill
+out applications from. `get_new_jobs` claims what it returns so overlapping
+runs don't double-apply; a claim left `in_progress` for 6 hours is offered
+again, in case a run died mid-form. The queue holds the last 400 sent
+listings.
 
 The log starts empty on deploy, so `preview_filters` has little to evaluate
 for the first week or two.

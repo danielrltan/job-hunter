@@ -8,7 +8,13 @@ import {
 } from "./config";
 import { evaluate } from "./filter";
 import {
+  APPLICATION_STATUSES,
   loadActivity,
+  loadApplications,
+  pendingJobs,
+  saveApplications,
+  type Application,
+  type ApplicationStatus,
   loadChanges,
   logChange,
   reasonBucket,
@@ -48,6 +54,12 @@ const SUPPORTED_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const INSTRUCTIONS = `job-hunter watches GitHub internship repos and sends matching listings to its owner's Telegram.
 The owner is a student based in Canada who needs US sponsorship, looking for SWE / AI / ML / data / product internships.
+
+Applying:
+1. Call get_new_jobs. It returns listings not yet handled, oldest first, and claims them (status in_progress) so a parallel run won't take them too.
+2. Work each one, then call update_application with the outcome: needs_review, submitted, skipped (with why) or failed (with why).
+3. Answer work-authorization and sponsorship questions truthfully from what the owner has told you; never guess on those.
+Claims left in_progress for 6 hours are offered again.
 
 Tune these filters from what you know about the owner — their background, interests, and goals.
 1. Read get_filters, and get_change_log: the owner's own hand edits (by "telegram") are deliberate; don't undo them.
@@ -284,6 +296,108 @@ export const TOOLS: Tool[] = [
         sampleSize: activity.rejected.length,
         sampleCountsByReason: sample,
         jobs: jobs.map((j) => brief(j)),
+      };
+    },
+  },
+  {
+    name: "get_new_jobs",
+    description:
+      "The application queue: sent listings you haven't handled yet, oldest first, with their apply links. Claims each returned job as in_progress. Call update_application for every job you get.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: int("How many to claim. Default 10.", 50),
+        peek: { type: "boolean", description: "Look without claiming." },
+      },
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    async run(args, { env }) {
+      const [activity, applications] = await Promise.all([
+        loadActivity(env.STATE),
+        loadApplications(env.STATE),
+      ]);
+      const pending = pendingJobs(activity.sent, applications, now());
+      const batch = pending.slice(0, Number(args.limit ?? 10));
+
+      if (args.peek !== true && batch.length) {
+        const claims: Record<string, Application> = {};
+        for (const j of batch) {
+          claims[j.id] = {
+            status: "in_progress",
+            ts: now(),
+            job: { company: j.company, title: j.title, url: j.url },
+          };
+        }
+        await saveApplications(env.STATE, claims);
+      }
+      return {
+        claimed: args.peek === true ? 0 : batch.length,
+        remaining: pending.length - batch.length,
+        jobs: batch.map((j) => ({ ...brief(j), salary: j.salary, workModel: j.workModel })),
+      };
+    },
+  },
+  {
+    name: "update_application",
+    description: "Record what happened with a job from get_new_jobs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        job_id: str("8-character id from get_new_jobs."),
+        status: { type: "string", enum: [...APPLICATION_STATUSES] },
+        note: str("Brief: what's left for the owner to do, why it was skipped, or what failed."),
+      },
+      required: ["job_id", "status"],
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async run(args, { env }) {
+      const id = requireString(args, "job_id");
+      const status = args.status as ApplicationStatus;
+      if (!APPLICATION_STATUSES.includes(status)) {
+        throw new ToolError(`"status" must be one of ${APPLICATION_STATUSES.join(", ")}`);
+      }
+      const [activity, applications] = await Promise.all([
+        loadActivity(env.STATE),
+        loadApplications(env.STATE),
+      ]);
+      const job = activity.sent.find((j) => j.id === id) ?? applications[id]?.job;
+      if (!job) throw new ToolError(`no sent job with id ${id}`);
+      await saveApplications(env.STATE, {
+        [id]: {
+          status,
+          ts: now(),
+          ...(typeof args.note === "string" ? { note: args.note.slice(0, 300) } : {}),
+          job: { company: job.company, title: job.title, url: job.url },
+        },
+      });
+      return { ok: true };
+    },
+  },
+  {
+    name: "list_applications",
+    description: "Applications by status, most recently updated first — e.g. everything waiting on the owner's review.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: [...APPLICATION_STATUSES] },
+        limit: int("Default 50.", 1000),
+      },
+    },
+    annotations: READ,
+    async run(args, { env }) {
+      const applications = await loadApplications(env.STATE);
+      const all = Object.entries(applications)
+        .filter(([, a]) => !args.status || a.status === args.status)
+        .sort((a, b) => b[1].ts - a[1].ts);
+      const counts: Record<string, number> = {};
+      for (const a of Object.values(applications)) {
+        counts[a.status] = (counts[a.status] ?? 0) + 1;
+      }
+      return {
+        counts,
+        applications: all
+          .slice(0, Number(args.limit ?? 50))
+          .map(([id, a]) => ({ id, at: iso(a.ts), status: a.status, note: a.note, ...a.job })),
       };
     },
   },

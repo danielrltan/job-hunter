@@ -16,10 +16,16 @@ import type { Job, RejectedJob } from "./types";
  */
 const ACTIVITY_KEY = "state:activity:v1";
 const CHANGES_KEY = "state:changes:v1";
+const APPLICATIONS_KEY = "state:applications:v1";
 
-const MAX_SENT = 150;
+/**
+ * Sent jobs double as the agent's application queue, so this is sized to hold
+ * several days of alerts even if the agent falls behind.
+ */
+const MAX_SENT = 400;
 const MAX_REJECTED = 200;
 const MAX_CHANGES = 100;
+const MAX_APPLICATIONS = 1000;
 
 export interface LoggedJob extends Job {
   /** Short stable id, derived from the dedupe key. */
@@ -112,3 +118,61 @@ export async function logChange(kv: KVNamespace, change: Change): Promise<void> 
   const changes = await loadChanges(kv);
   await kv.put(CHANGES_KEY, JSON.stringify([change, ...changes].slice(0, MAX_CHANGES)));
 }
+
+/* ------------------------------------------------------------------ */
+/* Applications — the agent's progress through the sent jobs           */
+/* ------------------------------------------------------------------ */
+
+export const APPLICATION_STATUSES = [
+  "in_progress",
+  "needs_review",
+  "submitted",
+  "skipped",
+  "failed",
+] as const;
+export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
+
+export interface Application {
+  status: ApplicationStatus;
+  /** Epoch seconds of the last update. */
+  ts: number;
+  note?: string;
+  /** Snapshot, since the job may roll out of the activity log. */
+  job: Pick<Job, "company" | "title" | "url">;
+}
+
+/**
+ * A claim that hasn't been updated in this long is treated as abandoned — the
+ * agent crashed or lost the thread mid-form — and the job is offered again.
+ */
+export const STALE_CLAIM_SECONDS = 6 * 3600;
+
+export async function loadApplications(kv: KVNamespace): Promise<Record<string, Application>> {
+  return (await kv.get<Record<string, Application>>(APPLICATIONS_KEY, "json")) ?? {};
+}
+
+export async function saveApplications(
+  kv: KVNamespace,
+  updates: Record<string, Application>,
+): Promise<void> {
+  const all = { ...(await loadApplications(kv)), ...updates };
+  const kept = Object.entries(all)
+    .sort((a, b) => b[1].ts - a[1].ts)
+    .slice(0, MAX_APPLICATIONS);
+  await kv.put(APPLICATIONS_KEY, JSON.stringify(Object.fromEntries(kept)));
+}
+
+/** Sent jobs the agent hasn't handled yet, oldest first. Pure. */
+export function pendingJobs(
+  sent: LoggedJob[],
+  applications: Record<string, Application>,
+  now: number,
+): LoggedJob[] {
+  return sent
+    .filter((j) => {
+      const app = applications[j.id];
+      return !app || (app.status === "in_progress" && now - app.ts > STALE_CLAIM_SECONDS);
+    })
+    .reverse();
+}
+

@@ -178,3 +178,61 @@ describe("MCP tuning tools", () => {
     expect(telegram).toHaveLength(0);
   });
 });
+
+describe("application queue", () => {
+  const a = job({ company: "Alpha", title: "SWE Intern" });
+  const b = job({ company: "Beta", title: "ML Intern" });
+
+  it("hands out unhandled jobs oldest first and claims them", async () => {
+    await seed([a], []);
+    await seed([b], []);
+
+    const first = await call("get_new_jobs", { limit: 1 });
+    expect(first.structuredContent.jobs.map((j: Job) => j.company)).toEqual(["Alpha"]);
+    expect(first.structuredContent.remaining).toBe(1);
+
+    const second = await call("get_new_jobs");
+    expect(second.structuredContent.jobs.map((j: Job) => j.company)).toEqual(["Beta"]);
+    expect((await call("get_new_jobs")).structuredContent.jobs).toEqual([]);
+  });
+
+  it("peeks without claiming", async () => {
+    await seed([a], []);
+    await call("get_new_jobs", { peek: true });
+    expect((await call("get_new_jobs")).structuredContent.claimed).toBe(1);
+  });
+
+  it("records outcomes and lists them by status", async () => {
+    await seed([a, b], []);
+    const [j1, j2] = (await call("get_new_jobs")).structuredContent.jobs;
+    await call("update_application", { job_id: j1.id, status: "needs_review", note: "answer essay Q3" });
+    await call("update_application", { job_id: j2.id, status: "skipped", note: "requires clearance" });
+
+    const review = await call("list_applications", { status: "needs_review" });
+    expect(review.structuredContent.counts).toEqual({ needs_review: 1, skipped: 1 });
+    expect(review.structuredContent.applications).toHaveLength(1);
+    expect(review.structuredContent.applications[0]).toMatchObject({ note: "answer essay Q3" });
+  });
+
+  it("re-offers a claim abandoned for over six hours", async () => {
+    await seed([a], []);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2027-01-01T00:00:00Z"));
+      await call("get_new_jobs");
+      vi.setSystemTime(new Date("2027-01-01T05:00:00Z"));
+      expect((await call("get_new_jobs")).structuredContent.jobs).toEqual([]);
+      vi.setSystemTime(new Date("2027-01-01T07:00:00Z"));
+      expect((await call("get_new_jobs")).structuredContent.jobs).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects an unknown status", async () => {
+    await seed([a], []);
+    const [j] = (await call("get_new_jobs")).structuredContent.jobs;
+    expect((await call("update_application", { job_id: j.id, status: "done" })).isError).toBe(true);
+  });
+});
+
