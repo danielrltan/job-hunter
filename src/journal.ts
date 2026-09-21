@@ -81,6 +81,16 @@ export function recordTick(
   rejected: RejectedJob[],
   now: number,
 ): Activity {
+  // Some feeds re-add every row on each rebuild. A drop the log already holds
+  // is not news, and counting it again would bury the ones that are.
+  const known = new Set(activity.rejected.map((j) => j.id));
+  rejected = rejected.filter((r) => {
+    const id = jobId(r.job);
+    if (known.has(id)) return false;
+    known.add(id);
+    return true;
+  });
+
   const counts = { ...activity.rejectCounts };
   for (const r of rejected) {
     const bucket = reasonBucket(r.reason);

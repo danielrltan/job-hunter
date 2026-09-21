@@ -1,6 +1,6 @@
 # job-hunter
 
-Watches eight GitHub internship-listing repos and pushes a Telegram message
+Watches eleven GitHub internship-listing repos and pushes a Telegram message
 within ~2 minutes of a relevant new posting appearing.
 
 Filtered for SWE / AI / ML / data / product internships, for someone based in
@@ -33,13 +33,16 @@ the next tick to retry the same commits rather than silently dropping jobs.
 | Source | Format | Notes |
 |---|---|---|
 | `vanshb03/Summer2027-Internships` | `listings.json` | structured, has a `sponsorship` field |
-| `SimplifyJobs/Summer2026-Internships` | `listings.json` | 11 MB, diff-only |
+| `SimplifyJobs/Summer2027-Internships` | `listings.json` | 11 MB, diff-only (formerly `Summer2026-Internships`) |
 | `speedyapply/2027-SWE-College-Jobs` | markdown | `README.md` (US) + `INTERN_INTL.md` (Canada et al.) |
 | `speedyapply/2027-AI-College-Jobs` | markdown | same two files |
 | `jobright-ai/2026-Software-Engineer-Internship` | markdown | branch `master` |
 | `jobright-ai/2026-Engineer-Internship` | markdown | |
 | `jobright-ai/2026-Product-Management-Internship` | markdown | |
 | `jobright-ai/2026-Data-Analysis-Internship` | markdown | |
+| `zapplyjobs/awesome-ml-internships-2027` | markdown | auto-scraped, mostly not in Simplify, has a sponsor column |
+| `zapplyjobs/Canada-Internships-2027` | markdown | Canadian internships and co-ops |
+| `zapplyjobs/Internships-2027` | markdown | README is big enough that GitHub omits many diffs — partial coverage |
 
 These repos roll over each year (`2026-` → `2027-`). GitHub's API follows the
 rename automatically, so nothing breaks; update `src/config.ts` when convenient

@@ -213,3 +213,35 @@ describe("speedyapply column-layout independence", () => {
     expect(job!.salary).toBeUndefined();
   });
 });
+
+describe("zapply", () => {
+  const src: Source = {
+    id: "zapply",
+    label: "Zapply",
+    owner: "zapplyjobs",
+    repo: "Internships-2027",
+    branch: "main",
+    paths: ["README.md"],
+    parser: "zapply",
+    assumeInternship: true,
+  };
+  const fixture = readFileSync(new URL("./fixtures/zapply-README.md", import.meta.url), "utf8");
+  const hunks = [fixture.split("\n").map((text) => ({ text, added: true }))];
+  const jobs = parseAdded(src, hunks);
+
+  it("reads every data row and skips headers and separators", () => {
+    const dataRows = fixture.split("\n").filter((l) => l.startsWith("| **"));
+    expect(jobs).toHaveLength(dataRows.length);
+    expect(jobs.length).toBeGreaterThan(10);
+  });
+
+  it("keeps the apply link even when a row has no closing pipe", () => {
+    for (const job of jobs) expect(job.url).toMatch(/^https:\/\/zapply\.jobs\//);
+  });
+
+  it("strips the company's bold and maps the sponsor column", () => {
+    for (const job of jobs) expect(job.company).not.toContain("*");
+    expect(jobs.some((j) => j.sponsorship === "Offers Sponsorship")).toBe(true);
+    expect(jobs.some((j) => j.sponsorship === undefined)).toBe(true);
+  });
+});

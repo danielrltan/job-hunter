@@ -1,4 +1,4 @@
-export type ParserKind = "listings-json" | "speedyapply" | "jobright";
+export type ParserKind = "listings-json" | "speedyapply" | "jobright" | "zapply";
 
 export interface Source {
   /** Stable key used in KV state. Never change this once deployed. */

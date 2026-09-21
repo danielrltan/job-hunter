@@ -21,7 +21,8 @@ export const SOURCES: Source[] = [
     id: "simplify",
     label: "Simplify",
     owner: "SimplifyJobs",
-    repo: "Summer2026-Internships",
+    // Renamed from Summer2026-Internships; the id stays "simplify" so KV state carries over.
+    repo: "Summer2027-Internships",
     branch: "dev",
     paths: [".github/scripts/listings.json"],
     parser: "listings-json",
@@ -87,6 +88,41 @@ export const SOURCES: Source[] = [
     paths: ["README.md"],
     parser: "jobright",
     assumeInternship: true,
+  },
+  // Zapply's lists are auto-scraped and mostly don't overlap Simplify. They
+  // rebuild every ~10 minutes, all three in the same commit window, so together
+  // they cost about the same KV writes as one.
+  {
+    id: "zapply-ml",
+    label: "Zapply AI/ML",
+    owner: "zapplyjobs",
+    repo: "awesome-ml-internships-2027",
+    branch: "main",
+    paths: ["README.md"],
+    parser: "zapply",
+    assumeInternship: true,
+  },
+  {
+    id: "zapply-canada",
+    label: "Zapply Canada",
+    owner: "zapplyjobs",
+    repo: "Canada-Internships-2027",
+    branch: "main",
+    paths: ["README.md"],
+    parser: "zapply",
+    assumeInternship: true,
+  },
+  {
+    id: "zapply",
+    label: "Zapply",
+    owner: "zapplyjobs",
+    repo: "Internships-2027",
+    branch: "main",
+    paths: ["README.md"],
+    parser: "zapply",
+    assumeInternship: true,
+    // Its README is large enough that GitHub omits the diff for many commits;
+    // those show up as `truncated` in the tick report and their rows are missed.
   },
 ];
 

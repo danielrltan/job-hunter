@@ -20,6 +20,9 @@ export function parseAdded(src: Source, hunks: Hunk[]): Job[] {
       return parseSpeedyApply(src, hunks);
     case "jobright":
       return parseJobright(src, hunks);
+    case "zapply":
+      // Every row names its own company, so context lines add nothing.
+      return parseZapply(src, hunks.flat().filter((l) => l.added).map((l) => l.text));
   }
 }
 
@@ -253,3 +256,47 @@ function parseJobright(src: Source, hunks: Hunk[]): Job[] {
   }
   return jobs;
 }
+
+/* ------------------------------------------------------------------ */
+/* Zapply markdown tables                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `| **Company** | Role | Location | Posted | Visa | [<img …>](apply-url) |`
+ *
+ * Split here rather than with `tableCells`: some Zapply tables omit the
+ * closing pipe, and `tableCells` drops the last cell — which is the link.
+ *
+ * The Posted column ("17m", "3d") changes on every rebuild, so each commit
+ * re-adds rows that were already there. The dedupe key absorbs that for
+ * alerts, and the activity log skips drops it already holds.
+ */
+function parseZapply(src: Source, lines: string[]): Job[] {
+  const jobs: Job[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) continue;
+    const cells = trimmed.slice(1).split("|").map((c) => c.trim());
+    if (cells.at(-1) === "") cells.pop();
+    if (cells.length < 6) continue;
+
+    const company = cells[0]!.match(/^\*\*(.+?)\*\*$/)?.[1]?.trim();
+    const url = cells[5]!.match(/\]\((https?:\/\/[^)\s]+)\)/)?.[1];
+    const title = stripTags(cells[1]!);
+    if (!company || !url || !title) continue;
+
+    const location = stripTags(cells[2]!);
+    jobs.push({
+      sourceId: src.id,
+      sourceLabel: src.label,
+      company,
+      title,
+      url,
+      locations: location ? [location] : [],
+      ...(/sponsor/i.test(cells[4]!) ? { sponsorship: "Offers Sponsorship" } : {}),
+    });
+  }
+  return jobs;
+}
+
