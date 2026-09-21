@@ -1,4 +1,5 @@
 import { dedupeKey } from "./filter";
+import { loadTickState, saveTickState } from "./state";
 import type { Job, RejectedJob } from "./types";
 
 /**
@@ -6,15 +7,16 @@ import type { Job, RejectedJob } from "./types";
  *
  * A filter can only be tuned in both directions if the drops are visible as
  * well as the alerts: the alerts show what to tighten, the drops show what the
- * rules are wrongly discarding. Two keys rather than one because they have
- * different writers — only the cron writes activity, only edits write the
- * change log — and KV is last-write-wins, so a shared key would let one writer
- * clobber the other.
+ * rules are wrongly discarding.
+ *
+ * The activity log is written only by the cron, so it rides in the cron's own
+ * tick-state key (see state.ts). The change log and applications are written
+ * by edits and the agent, so they get keys of their own: KV is
+ * last-write-wins, and a key shared across writers lets one clobber another.
  *
  * Every write here is conditional on something actually happening. The free
  * tier allows 1,000 KV writes a day, and the cron alone fires 720 times.
  */
-const ACTIVITY_KEY = "state:activity:v1";
 const CHANGES_KEY = "state:changes:v1";
 const APPLICATIONS_KEY = "state:applications:v1";
 
@@ -69,9 +71,7 @@ export function reasonBucket(reason: string): string {
 }
 
 export async function loadActivity(kv: KVNamespace): Promise<Activity> {
-  return (
-    (await kv.get<Activity>(ACTIVITY_KEY, "json")) ?? { sent: [], rejected: [], rejectCounts: {} }
-  );
+  return (await loadTickState(kv)).activity;
 }
 
 /** Fold one tick's outcome into the log. Pure, so it can be tested without KV. */
@@ -106,8 +106,9 @@ export function recordTick(
   };
 }
 
+/** Outside the cron — which saves its whole tick state at once — only tests need this. */
 export async function saveActivity(kv: KVNamespace, activity: Activity): Promise<void> {
-  await kv.put(ACTIVITY_KEY, JSON.stringify(activity));
+  await saveTickState(kv, { ...(await loadTickState(kv)), activity });
 }
 
 export async function loadChanges(kv: KVNamespace): Promise<Change[]> {

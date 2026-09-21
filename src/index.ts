@@ -2,11 +2,11 @@ import { handleCommand } from "./commands";
 import { HEARTBEAT_DAYS, MAX_NOTIFY_PER_TICK, SOURCES } from "./config";
 import { dedupeKey, filterJobs } from "./filter";
 import { diffSince } from "./github";
-import { loadActivity, recordTick, saveActivity } from "./journal";
+import { recordTick } from "./journal";
 import { handleMcp, mcpToken } from "./mcp";
 import { parseAdded } from "./parsers";
 import { loadSettings } from "./settings";
-import { loadMeta, loadSeen, loadShas, saveMeta, saveSeen, saveShas } from "./state";
+import { loadSeen, loadShas, loadTickState, saveSeen, saveTickState, type Meta } from "./state";
 import { notify, sendMessage } from "./telegram";
 import type { Job, RejectedJob } from "./types";
 
@@ -79,7 +79,8 @@ export async function runOnce(env: Env): Promise<TickReport> {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const shas = await loadShas(env.STATE);
+  const tick = await loadTickState(env.STATE);
+  const shas = tick.shas;
   const nextShas: Record<string, string> = { ...shas };
   const candidates: Job[] = [];
   const rejected: RejectedJob[] = [];
@@ -150,18 +151,20 @@ export async function runOnce(env: Env): Promise<TickReport> {
     }
   }
 
-  // Kept for the MCP tuning tools. Only ticks that parsed listings write it, so
-  // it costs nothing on the idle ticks that make up most of the day.
+  // Everything below lands in one write, and an idle tick — most of the day —
+  // makes none at all.
+  let dirty = false;
   if (report.parsed) {
-    await saveActivity(env.STATE, recordTick(await loadActivity(env.STATE), sent, rejected, now));
+    // Kept for the MCP tools: tuning, and the agent's application queue.
+    tick.activity = recordTick(tick.activity, sent, rejected, now);
+    dirty = true;
   }
-
-  // Idle ticks leave every sha where it was; skipping the write keeps the
-  // cron's baseline well under the 1,000 writes/day free-tier limit.
   if (SOURCES.some((s) => nextShas[s.id] !== shas[s.id])) {
-    await saveShas(env.STATE, nextShas);
+    tick.shas = nextShas;
+    dirty = true;
   }
-  await runHeartbeat(env, now, report);
+  if (await runHeartbeat(env, now, report, tick.meta)) dirty = true;
+  if (dirty) await saveTickState(env.STATE, tick);
 
   if (
     report.changed.length ||
@@ -181,8 +184,12 @@ export async function runOnce(env: Env): Promise<TickReport> {
  * same from the outside. A heartbeat that stops arriving is a signal; silence
  * on its own is not.
  */
-async function runHeartbeat(env: Env, now: number, report: TickReport): Promise<void> {
-  const meta = await loadMeta(env.STATE);
+async function runHeartbeat(
+  env: Env,
+  now: number,
+  report: TickReport,
+  meta: Meta,
+): Promise<boolean> {
   let dirty = false;
 
   if (report.notified) {
@@ -198,20 +205,26 @@ async function runHeartbeat(env: Env, now: number, report: TickReport): Promise<
     dirty = true;
   } else if (now - lastSignal >= HEARTBEAT_DAYS * 86400) {
     const days = Math.floor((now - lastSignal) / 86400);
-    await sendMessage(
-      `💤 <b>job-hunter checkup</b>\n\nStill running — no matching internships in ${days} days. ` +
-        `All ${SOURCES.length} sources are being polled normally.\n\n` +
-        `<i>If this keeps arriving during peak season, a source's format may have changed ` +
-        `and its parser may need attention.</i>`,
-      env.TELEGRAM_BOT_TOKEN,
-      env.TELEGRAM_CHAT_ID,
-    );
-    meta.lastHeartbeatTs = now;
-    dirty = true;
-    log("heartbeat", { quietDays: days });
+    // Saved in the same write as the commit shas now, so a failed checkup must
+    // not throw: that would discard the shas and re-diff commits already handled.
+    try {
+      await sendMessage(
+        `💤 <b>job-hunter checkup</b>\n\nStill running — no matching internships in ${days} days. ` +
+          `All ${SOURCES.length} sources are being polled normally.\n\n` +
+          `<i>If this keeps arriving during peak season, a source's format may have changed ` +
+          `and its parser may need attention.</i>`,
+        env.TELEGRAM_BOT_TOKEN,
+        env.TELEGRAM_CHAT_ID,
+      );
+      meta.lastHeartbeatTs = now;
+      dirty = true;
+      log("heartbeat", { quietDays: days });
+    } catch (err) {
+      log("heartbeat_error", { message: err instanceof Error ? err.message : String(err) });
+    }
   }
 
-  if (dirty) await saveMeta(env.STATE, meta);
+  return dirty;
 }
 
 /* ------------------------------------------------------------------ */

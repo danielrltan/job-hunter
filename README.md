@@ -248,10 +248,11 @@ npm run tail    # stream production logs
 ### Free-tier headroom
 
 - **Worker requests** — ~720/day of 100,000.
-- **KV writes** — the binding constraint at 1,000/day. Nothing is written on
-  an idle tick: `shas` only when a source moved, the activity log only when a
-  tick parsed listings, `seen` only when something was sent, and feedback and
-  the change log only on a tap or an edit.
+- **KV writes** — the binding constraint at 1,000/day. An idle tick writes
+  nothing. A tick where a source moved writes one key, holding the commit
+  shas, heartbeat clock and activity log together; one that also sent jobs
+  writes `seen` too. The agent's edits and application updates write their own
+  keys, about one or two per job it handles.
 - **GitHub API** — ~240 calls/hour against 5,000.
 
 CPU per tick stays in single-digit milliseconds because only diffs are parsed.

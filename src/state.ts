@@ -1,16 +1,23 @@
 import { SEEN_TTL_DAYS } from "./config";
+import type { Activity } from "./journal";
 
 /**
- * State lives in two KV keys rather than one per source or one per job,
- * because the free tier allows only 1,000 writes/day.
+ * The cron's state lives in two KV keys, because the free tier allows only
+ * 1,000 writes/day and each key a tick touches costs one.
  *
- * - `SOURCES_KEY` is tiny and read every tick.
- * - `SEEN_KEY` is larger but only touched on ticks that actually found jobs,
- *   which is a small minority of them.
+ * - `TICK_KEY` holds everything a tick that saw a change needs to save — the
+ *   per-source commits, the heartbeat clock and the activity log — so such a
+ *   tick costs one write rather than three. Reading it every tick costs well
+ *   under a millisecond of CPU even with the log full.
+ * - `SEEN_KEY` is larger and only touched on ticks that actually sent jobs.
  */
-const SOURCES_KEY = "state:sources:v1";
+const TICK_KEY = "state:tick:v1";
 const SEEN_KEY = "state:seen:v1";
-const META_KEY = "state:meta:v1";
+
+/** The separate keys `TICK_KEY` replaced, read once as a fallback so the switch loses nothing. */
+const LEGACY_SOURCES_KEY = "state:sources:v1";
+const LEGACY_META_KEY = "state:meta:v1";
+const LEGACY_ACTIVITY_KEY = "state:activity:v1";
 
 /** Cap on remembered jobs, to bound both KV value size and parse cost. */
 const MAX_SEEN = 6000;
@@ -21,13 +28,6 @@ export type SourceShas = Record<string, string>;
 /** dedupe key -> epoch seconds first seen */
 export type SeenMap = Record<string, number>;
 
-export async function loadShas(kv: KVNamespace): Promise<SourceShas> {
-  return (await kv.get<SourceShas>(SOURCES_KEY, "json")) ?? {};
-}
-
-export async function saveShas(kv: KVNamespace, shas: SourceShas): Promise<void> {
-  await kv.put(SOURCES_KEY, JSON.stringify(shas));
-}
 
 /** Timestamps backing the "am I still alive?" heartbeat. */
 export interface Meta {
@@ -35,12 +35,38 @@ export interface Meta {
   lastHeartbeatTs?: number;
 }
 
-export async function loadMeta(kv: KVNamespace): Promise<Meta> {
-  return (await kv.get<Meta>(META_KEY, "json")) ?? {};
+export interface TickState {
+  shas: SourceShas;
+  meta: Meta;
+  activity: Activity;
 }
 
-export async function saveMeta(kv: KVNamespace, meta: Meta): Promise<void> {
-  await kv.put(META_KEY, JSON.stringify(meta));
+export async function loadTickState(kv: KVNamespace): Promise<TickState> {
+  const state = await kv.get<TickState>(TICK_KEY, "json");
+  if (state) return state;
+
+  const [shas, meta, activity] = await Promise.all([
+    kv.get<SourceShas>(LEGACY_SOURCES_KEY, "json"),
+    kv.get<Meta>(LEGACY_META_KEY, "json"),
+    kv.get<Activity>(LEGACY_ACTIVITY_KEY, "json"),
+  ]);
+  return {
+    shas: shas ?? {},
+    meta: meta ?? {},
+    activity: activity ?? { sent: [], rejected: [], rejectCounts: {} },
+  };
+}
+
+export async function saveTickState(kv: KVNamespace, state: TickState): Promise<void> {
+  await kv.put(TICK_KEY, JSON.stringify(state));
+}
+
+export async function loadShas(kv: KVNamespace): Promise<SourceShas> {
+  return (await loadTickState(kv)).shas;
+}
+
+export async function loadMeta(kv: KVNamespace): Promise<Meta> {
+  return (await loadTickState(kv)).meta;
 }
 
 export async function loadSeen(kv: KVNamespace): Promise<SeenMap> {
