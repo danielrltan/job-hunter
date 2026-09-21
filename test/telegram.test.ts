@@ -59,3 +59,13 @@ describe("sendMessage", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe("sendMessage with a keyboard", () => {
+  it("drops the keyboard from the plain-text retry, so a bad keyboard can't wedge the queue", async () => {
+    const calls = mockTelegram(400, 200);
+    await sendMessage("<b>hi</b>", "tok", "1", [[{ text: "👍", callback_data: "fb:u:00000000" }]]);
+    expect(calls[0]).toHaveProperty("reply_markup");
+    expect(calls[1]).not.toHaveProperty("reply_markup");
+  });
+});
+

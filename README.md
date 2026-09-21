@@ -179,6 +179,60 @@ zero rows and raises no error. Prolonged quiet would look exactly like a quiet
 hiring week. A heartbeat that stops arriving is a signal — silence on its own
 is not.
 
+## Letting an agent tune the filters (MCP)
+
+`POST /mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
+server, so an agent such as Meta's Muse can see what the Worker has been
+sending and dropping, and adjust the filters.
+
+The loop needs signals in both directions. Alerts show what to tighten, and
+**drops** show what the rules are wrongly discarding — so every tick that
+parses listings now keeps a rolling sample of both, with the reason each drop
+was made. The preference signal comes from **👍/👎 buttons** under every
+listing in Telegram.
+
+| Tool | Does |
+|---|---|
+| `get_status`, `get_filters` | what's running and the complete rule set |
+| `recent_jobs` | sent listings, with any 👍/👎 |
+| `recent_rejections` | dropped listings with reasons, plus counts per reason |
+| `list_feedback`, `get_change_log` | ratings, and every filter edit — yours and the agent's |
+| `preview_filters` | dry run: what a proposed edit would newly match or drop |
+| `add_include`, `add_exclude`, `remove_phrase`, `set_terms`, `set_paused` | edits |
+| `record_feedback` | rate a listing from conversation ("I applied to that one") |
+
+Guardrails, because an agent that quietly over-excludes would look exactly
+like a slow hiring week:
+
+- Every agent edit is **announced in Telegram** with its reason, and `/unset`
+  undoes it.
+- `add_exclude` refuses to drop a listing you gave 👍 unless the agent passes
+  `force`.
+- Every edit needs a reason and lands in the change log; each list is capped.
+- There is deliberately no reset tool.
+
+The log starts empty on deploy. Until a week or two of listings has built up,
+`preview_filters` has little to evaluate and the 👍 guard has little to protect,
+so treat early "this changes nothing" previews as absence of evidence. The
+Telegram announcement is the backstop meanwhile.
+
+**Connecting Muse**
+
+1. Deploy, then re-run `/setup-webhook?key=…` once so Telegram starts delivering
+   button taps.
+2. `curl "https://job-hunter.<your-subdomain>.workers.dev/mcp-token?key=$ADMIN_KEY"`
+   prints the URL and bearer header. The token is derived from `ADMIN_KEY`;
+   rotating that rotates it.
+3. Tell Muse something like:
+
+   > Build a custom integration to my job-hunter bot. Its MCP server URL is
+   > `<url>`, over streamable HTTP, with the bearer token I'll give you in the
+   > credential prompt. Test every read tool, show me the results, and save it
+   > as a skill. Then once a week: read my feedback and change log, look for
+   > good roles in recent_rejections and noise in recent_jobs, run
+   > preview_filters on anything you'd change, and make small edits with a
+   > reason.
+
 ## Operations
 
 | Route | Purpose |
@@ -188,9 +242,12 @@ is not.
 | `/state?key=…` | current per-source commits and seen-count |
 | `/test?key=…` | send a test Telegram message |
 | `/reset-seen?key=…` | clear dedupe memory |
+| `/setup-webhook?key=…` | register Telegram commands and button taps |
+| `/mcp-token?key=…` | URL and bearer header for the MCP server |
+| `POST /mcp` | MCP server (bearer auth) |
 
 ```bash
-npm test        # 37 tests over real captured fixtures
+npm test        # tests over real captured fixtures
 npm run smoke   # full live path, prints the exact Telegram message
 npm run tail    # stream production logs
 ```
@@ -198,10 +255,10 @@ npm run tail    # stream production logs
 ### Free-tier headroom
 
 - **Worker requests** — ~720/day of 100,000.
-- **KV writes** — the binding constraint at 1,000/day. State is two keys, not
-  one per job: a small `shas` key read every tick, and a `seen` key touched
-  only on ticks that actually found something. Typical usage is a few hundred
-  writes/day.
+- **KV writes** — the binding constraint at 1,000/day. Nothing is written on
+  an idle tick: `shas` only when a source moved, the activity log only when a
+  tick parsed listings, `seen` only when something was sent, and feedback and
+  the change log only on a tap or an edit.
 - **GitHub API** — ~240 calls/hour against 5,000.
 
 CPU per tick stays in single-digit milliseconds because only diffs are parsed.

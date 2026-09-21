@@ -2,11 +2,21 @@ import { handleCommand } from "./commands";
 import { HEARTBEAT_DAYS, MAX_NOTIFY_PER_TICK, SOURCES } from "./config";
 import { dedupeKey, filterJobs } from "./filter";
 import { diffSince } from "./github";
+import { loadActivity, recordTick, saveActivity, saveFeedback } from "./journal";
+import { handleMcp, mcpToken } from "./mcp";
 import { parseAdded } from "./parsers";
 import { loadSettings } from "./settings";
 import { loadMeta, loadSeen, loadShas, saveMeta, saveSeen, saveShas } from "./state";
-import { notify, sendMessage } from "./telegram";
-import type { Job } from "./types";
+import {
+  answerCallback,
+  editKeyboard,
+  markChoice,
+  notify,
+  parseFeedbackData,
+  sendMessage,
+  type Keyboard,
+} from "./telegram";
+import type { Job, RejectedJob } from "./types";
 
 interface TickReport {
   changed: string[];
@@ -80,6 +90,8 @@ export async function runOnce(env: Env): Promise<TickReport> {
   const shas = await loadShas(env.STATE);
   const nextShas: Record<string, string> = { ...shas };
   const candidates: Job[] = [];
+  const rejected: RejectedJob[] = [];
+  let sent: Job[] = [];
 
   for (const src of SOURCES) {
     try {
@@ -100,7 +112,9 @@ export async function runOnce(env: Env): Promise<TickReport> {
       for (const [, hunks] of diff.hunksByPath) {
         const jobs = parseAdded(src, hunks);
         report.parsed += jobs.length;
-        candidates.push(...filterJobs(jobs, src, settings).matched);
+        const result = filterJobs(jobs, src, settings);
+        candidates.push(...result.matched);
+        rejected.push(...result.rejected);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -139,11 +153,22 @@ export async function runOnce(env: Env): Promise<TickReport> {
         );
       }
       report.notified = announce.length;
+      sent = announce;
       await saveSeen(env.STATE, seen);
     }
   }
 
-  await saveShas(env.STATE, nextShas);
+  // Kept for the MCP tuning tools. Only ticks that parsed listings write it, so
+  // it costs nothing on the idle ticks that make up most of the day.
+  if (report.parsed) {
+    await saveActivity(env.STATE, recordTick(await loadActivity(env.STATE), sent, rejected, now));
+  }
+
+  // Idle ticks leave every sha where it was; skipping the write keeps the
+  // cron's baseline well under the 1,000 writes/day free-tier limit.
+  if (SOURCES.some((s) => nextShas[s.id] !== shas[s.id])) {
+    await saveShas(env.STATE, nextShas);
+  }
   await runHeartbeat(env, now, report);
 
   if (
@@ -226,6 +251,15 @@ async function webhookSecret(env: Env): Promise<string> {
 
 interface TelegramUpdate {
   message?: { text?: string; chat?: { id?: number | string } };
+  callback_query?: {
+    id: string;
+    data?: string;
+    message?: {
+      message_id: number;
+      chat?: { id?: number | string };
+      reply_markup?: { inline_keyboard?: Keyboard };
+    };
+  };
 }
 
 /**
@@ -240,6 +274,11 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
   }
 
   const update = (await request.json()) as TelegramUpdate;
+  if (update.callback_query) {
+    await handleFeedbackTap(update.callback_query, env);
+    return json({ ok: true });
+  }
+
   const text = update.message?.text ?? "";
   const chatId = String(update.message?.chat?.id ?? "");
 
@@ -253,6 +292,51 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
   const reply = await handleCommand(text, env);
   if (reply) await sendMessage(reply, env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID);
   return json({ ok: true });
+}
+
+/**
+ * A 👍/👎 tap on a listing. Stored as feedback for the MCP tuning tools, then
+ * the tapped button gets a check mark so it's clear the tap registered.
+ */
+async function handleFeedbackTap(
+  query: NonNullable<TelegramUpdate["callback_query"]>,
+  env: Env,
+): Promise<void> {
+  const chatId = String(query.message?.chat?.id ?? "");
+  const parsed = parseFeedbackData(query.data ?? "");
+
+  if (chatId !== env.TELEGRAM_CHAT_ID || !parsed) {
+    await answerCallback(env.TELEGRAM_BOT_TOKEN, query.id);
+    return;
+  }
+
+  const activity = await loadActivity(env.STATE);
+  const job = activity.sent.find((j) => j.id === parsed.id);
+  await saveFeedback(env.STATE, parsed.id, {
+    verdict: parsed.verdict,
+    ts: Math.floor(Date.now() / 1000),
+    by: "telegram",
+    ...(job
+      ? { job: { company: job.company, title: job.title, url: job.url, sourceId: job.sourceId } }
+      : {}),
+  });
+
+  const label = job ? ` — ${job.company}` : "";
+  await answerCallback(
+    env.TELEGRAM_BOT_TOKEN,
+    query.id,
+    `${parsed.verdict === "up" ? "👍" : "👎"} Noted${label}`,
+  );
+
+  const keyboard = query.message?.reply_markup?.inline_keyboard;
+  if (keyboard && query.message) {
+    await editKeyboard(
+      env.TELEGRAM_BOT_TOKEN,
+      env.TELEGRAM_CHAT_ID,
+      query.message.message_id,
+      markChoice(keyboard, query.data!),
+    );
+  }
 }
 
 function json(body: unknown, status = 200): Response {
@@ -282,6 +366,10 @@ export default {
 
     if (path === "/telegram" && request.method === "POST") {
       return await handleWebhook(request, env);
+    }
+
+    if (path === "/mcp") {
+      return await handleMcp(request, env, safeEqual);
     }
 
     if (!authorized(request, env)) {
@@ -322,7 +410,8 @@ export default {
             body: JSON.stringify({
               url: webhookUrl,
               secret_token: await webhookSecret(env),
-              allowed_updates: ["message"],
+              // callback_query carries the 👍/👎 taps on listings.
+              allowed_updates: ["message", "callback_query"],
             }),
           });
 
@@ -352,6 +441,13 @@ export default {
             setMyCommands: await menu.json(),
           });
         }
+
+        case "/mcp-token":
+          // What to paste into Muse's custom connector setup.
+          return json({
+            url: `${new URL(request.url).origin}/mcp`,
+            header: `Authorization: Bearer ${await mcpToken(env)}`,
+          });
 
         case "/reset-seen":
           await saveSeen(env.STATE, {});

@@ -89,3 +89,59 @@ export function parseTerms(input: string): Term[] | "any" | null {
 export function formatTerms(terms: Term[] | "any"): string {
   return terms === "any" ? "any term" : terms.map((t) => `${t.season} ${t.year}`).join(", ");
 }
+
+/* ------------------------------------------------------------------ */
+/* Edits — shared by Telegram commands and the MCP server              */
+/* ------------------------------------------------------------------ */
+
+/** Upper bound per list, so an agent in a loop can't grow them without limit. */
+export const MAX_PHRASES = 40;
+
+export type Edit =
+  | { ok: true; next: Overrides; changed: boolean }
+  | { ok: false; error: string };
+
+export function addPhrase(
+  overrides: Overrides,
+  field: "include" | "exclude",
+  phrase: string,
+): Edit {
+  const trimmed = phrase.trim();
+  if (!trimmed) return { ok: false, error: "empty phrase" };
+  if (trimmed.length > 60) return { ok: false, error: "phrase too long — keep it under 60 characters" };
+
+  const current = overrides[field] ?? [];
+  if (current.some((p) => p.toLowerCase() === trimmed.toLowerCase())) {
+    return { ok: true, next: overrides, changed: false };
+  }
+  if (current.length >= MAX_PHRASES) {
+    return { ok: false, error: `the ${field} list is full (${MAX_PHRASES}); remove a phrase first` };
+  }
+  return { ok: true, next: { ...overrides, [field]: [...current, trimmed] }, changed: true };
+}
+
+/** Removes the phrase from whichever of include/exclude holds it. */
+export function removePhrase(overrides: Overrides, phrase: string): Edit {
+  const target = phrase.trim().toLowerCase();
+  if (!target) return { ok: false, error: "empty phrase" };
+
+  const next: Overrides = { ...overrides };
+  let changed = false;
+  for (const field of ["include", "exclude"] as const) {
+    const current = next[field];
+    if (!current) continue;
+    const filtered = current.filter((p) => p.toLowerCase() !== target);
+    if (filtered.length !== current.length) {
+      next[field] = filtered;
+      changed = true;
+    }
+  }
+  return { ok: true, next, changed };
+}
+
+export function setTerms(overrides: Overrides, input: string): Edit {
+  const parsed = parseTerms(input);
+  if (!parsed) return { ok: false, error: `couldn't read "${input}" — use e.g. "summer 2027" or "any"` };
+  const changed = JSON.stringify(parsed) !== JSON.stringify(overrides.terms ?? null);
+  return { ok: true, next: { ...overrides, terms: parsed }, changed };
+}

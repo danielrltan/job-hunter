@@ -1,9 +1,13 @@
 import { HEARTBEAT_DAYS, SOURCES, TARGET_TERMS } from "./config";
+import { logChange } from "./journal";
 import {
+  addPhrase as addPhraseEdit,
   formatTerms,
   loadOverrides,
-  parseTerms,
+  removePhrase as removePhraseEdit,
   saveOverrides,
+  setTerms as setTermsEdit,
+  type Edit,
   type Overrides,
 } from "./settings";
 import { loadSeen, loadShas } from "./state";
@@ -63,15 +67,15 @@ export async function handleCommand(text: string, env: Env): Promise<string | nu
       return await setTerms(env, overrides, argument);
 
     case "/pause":
-      await saveOverrides(env.STATE, { ...overrides, paused: true });
+      await applyEdit(env, { ok: true, next: { ...overrides, paused: true }, changed: true }, "pause", "");
       return "⏸ Paused. No notifications until /resume.";
 
     case "/resume":
-      await saveOverrides(env.STATE, { ...overrides, paused: false });
+      await applyEdit(env, { ok: true, next: { ...overrides, paused: false }, changed: true }, "resume", "");
       return "▶️ Resumed. Postings made while paused will come through on the next check.";
 
     case "/reset":
-      await saveOverrides(env.STATE, {});
+      await applyEdit(env, { ok: true, next: {}, changed: true }, "reset", "back to defaults");
       return "♻️ All changes discarded — back to the built-in defaults.\n\nUse /filters to confirm.";
 
     default:
@@ -128,6 +132,17 @@ function filters(overrides: Overrides): string {
   return lines.join("\n");
 }
 
+/**
+ * Your own edits go in the change log too. They're the strongest tuning signal
+ * there is — a hand-typed /exclude says exactly what you didn't want — and the
+ * agent reads the log to avoid undoing them.
+ */
+async function applyEdit(env: Env, edit: Edit, action: string, detail: string): Promise<void> {
+  if (!edit.ok || !edit.changed) return;
+  await saveOverrides(env.STATE, edit.next);
+  await logChange(env.STATE, { ts: Math.floor(Date.now() / 1000), by: "telegram", action, detail });
+}
+
 async function addPhrase(
   env: Env,
   overrides: Overrides,
@@ -137,15 +152,11 @@ async function addPhrase(
   if (!phrase) {
     return `Give me a phrase, e.g. <code>/${field} ${field === "include" ? "robotics" : "quantum"}</code>`;
   }
-  if (phrase.length > 60) return "That phrase is too long — keep it under 60 characters.";
 
-  const current = overrides[field] ?? [];
-  if (current.some((p) => p.toLowerCase() === phrase.toLowerCase())) {
-    return `Already in the ${field} list.`;
-  }
-
-  const next = { ...overrides, [field]: [...current, phrase] };
-  await saveOverrides(env.STATE, next);
+  const edit = addPhraseEdit(overrides, field, phrase);
+  if (!edit.ok) return `Couldn't add that: ${escapeHtml(edit.error)}.`;
+  if (!edit.changed) return `Already in the ${field} list.`;
+  await applyEdit(env, edit, field, phrase);
 
   return field === "include"
     ? `➕ Now also alerting on roles containing <b>${escapeHtml(phrase)}</b>.`
@@ -159,21 +170,9 @@ async function removePhrase(
 ): Promise<string> {
   if (!phrase) return "Give me the phrase to remove, e.g. <code>/unset robotics</code>";
 
-  const next: Overrides = { ...overrides };
-  let removed = false;
-
-  for (const field of ["include", "exclude"] as const) {
-    const current = next[field];
-    if (!current) continue;
-    const filtered = current.filter((p) => p.toLowerCase() !== phrase.toLowerCase());
-    if (filtered.length !== current.length) {
-      next[field] = filtered;
-      removed = true;
-    }
-  }
-
-  if (!removed) return `Couldn't find <b>${escapeHtml(phrase)}</b>. Check /filters.`;
-  await saveOverrides(env.STATE, next);
+  const edit = removePhraseEdit(overrides, phrase);
+  if (!edit.ok || !edit.changed) return `Couldn't find <b>${escapeHtml(phrase)}</b>. Check /filters.`;
+  await applyEdit(env, edit, "unset", phrase);
   return `🗑 Removed <b>${escapeHtml(phrase)}</b>.`;
 }
 
@@ -182,12 +181,13 @@ async function setTerms(env: Env, overrides: Overrides, argument: string): Promi
     return `Which terms? e.g. <code>/term summer 2027</code>, <code>/term summer 2027, winter 2028</code>, or <code>/term any</code>`;
   }
 
-  const parsed = parseTerms(argument);
-  if (!parsed) {
+  const edit = setTermsEdit(overrides, argument);
+  if (!edit.ok) {
     return `Couldn't read "${escapeHtml(argument)}". Use a season and year, like <code>/term summer 2027</code>.`;
   }
 
-  await saveOverrides(env.STATE, { ...overrides, terms: parsed });
+  const parsed = edit.next.terms!;
+  await applyEdit(env, edit, "term", formatTerms(parsed));
   return parsed === "any"
     ? `🗓 Accepting <b>any term</b> now.`
     : `🗓 Only alerting on <b>${formatTerms(parsed)}</b>.\n\n<i>Listings that don't state a term still come through.</i>`;
