@@ -6,21 +6,19 @@ import type { Job, RejectedJob } from "./types";
  *
  * A filter can only be tuned in both directions if the drops are visible as
  * well as the alerts: the alerts show what to tighten, the drops show what the
- * rules are wrongly discarding. Three keys rather than one because they have
- * different writers — only the cron writes activity, only Telegram taps and
- * the agent write feedback, only edits write the change log — and KV is
- * last-write-wins, so a shared key would let one writer clobber another.
+ * rules are wrongly discarding. Two keys rather than one because they have
+ * different writers — only the cron writes activity, only edits write the
+ * change log — and KV is last-write-wins, so a shared key would let one writer
+ * clobber the other.
  *
  * Every write here is conditional on something actually happening. The free
  * tier allows 1,000 KV writes a day, and the cron alone fires 720 times.
  */
 const ACTIVITY_KEY = "state:activity:v1";
-const FEEDBACK_KEY = "state:feedback:v1";
 const CHANGES_KEY = "state:changes:v1";
 
 const MAX_SENT = 150;
 const MAX_REJECTED = 200;
-const MAX_FEEDBACK = 500;
 const MAX_CHANGES = 100;
 
 export interface LoggedJob extends Job {
@@ -42,17 +40,6 @@ export interface Activity {
   since?: number;
 }
 
-export type Verdict = "up" | "down";
-
-export interface Feedback {
-  verdict: Verdict;
-  ts: number;
-  by: "telegram" | "muse";
-  note?: string;
-  /** Snapshot, since the job may have rolled out of the activity log. */
-  job?: Pick<Job, "company" | "title" | "url" | "sourceId">;
-}
-
 export interface Change {
   ts: number;
   by: "telegram" | "muse";
@@ -61,7 +48,7 @@ export interface Change {
   reason?: string;
 }
 
-/** FNV-1a — a stable 8-character id short enough for Telegram callback data. */
+/** FNV-1a — a short stable id, so the agent can refer to a listing. */
 export function jobId(job: Job): string {
   let h = 0x811c9dc5;
   for (const ch of dedupeKey(job)) {
@@ -115,23 +102,6 @@ export function recordTick(
 
 export async function saveActivity(kv: KVNamespace, activity: Activity): Promise<void> {
   await kv.put(ACTIVITY_KEY, JSON.stringify(activity));
-}
-
-export async function loadFeedback(kv: KVNamespace): Promise<Record<string, Feedback>> {
-  return (await kv.get<Record<string, Feedback>>(FEEDBACK_KEY, "json")) ?? {};
-}
-
-export async function saveFeedback(
-  kv: KVNamespace,
-  id: string,
-  feedback: Feedback,
-): Promise<void> {
-  const all = await loadFeedback(kv);
-  all[id] = feedback;
-  const kept = Object.entries(all)
-    .sort((a, b) => b[1].ts - a[1].ts)
-    .slice(0, MAX_FEEDBACK);
-  await kv.put(FEEDBACK_KEY, JSON.stringify(Object.fromEntries(kept)));
 }
 
 export async function loadChanges(kv: KVNamespace): Promise<Change[]> {

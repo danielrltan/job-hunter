@@ -1,5 +1,4 @@
 import { companyRank, matchTiers } from "./companies";
-import { jobId } from "./journal";
 import type { Job } from "./types";
 
 const MAX_CHARS = 3500; // Telegram's hard limit is 4096
@@ -48,77 +47,19 @@ function formatJob(job: Job): string {
   return `<blockquote>${lines.join("\n")}</blockquote>`;
 }
 
-export interface InlineButton {
-  text: string;
-  callback_data: string;
-}
-export type Keyboard = InlineButton[][];
-
-export interface Batch {
-  text: string;
-  jobs: Job[];
-}
-
-/** Callback data for a rating button: `fb:<u|d>:<job id>`, well under Telegram's 64 bytes. */
-export function feedbackData(verdict: "up" | "down", id: string): string {
-  return `fb:${verdict === "up" ? "u" : "d"}:${id}`;
-}
-
-export function parseFeedbackData(data: string): { verdict: "up" | "down"; id: string } | null {
-  const m = data.match(/^fb:([ud]):([0-9a-f]{8})$/);
-  return m ? { verdict: m[1] === "u" ? "up" : "down", id: m[2]! } : null;
-}
-
-/**
- * One 👍/👎 row per listing, labelled by company so it's clear which block a
- * button belongs to. These taps are the preference signal the MCP tuning loop
- * learns from — without them an agent would be tuning against nothing.
- */
-export function feedbackKeyboard(jobs: Job[]): Keyboard {
-  const used = new Map<string, number>();
-  return jobs.map((job) => {
-    let label = job.company.length > 18 ? `${job.company.slice(0, 17)}…` : job.company;
-    const n = (used.get(label) ?? 0) + 1;
-    used.set(label, n);
-    if (n > 1) label = `${label} #${n}`;
-    const id = jobId(job);
-    return [
-      { text: `👍 ${label}`, callback_data: feedbackData("up", id) },
-      { text: `👎 ${label}`, callback_data: feedbackData("down", id) },
-    ];
-  });
-}
-
-/** Mark the tapped button, clearing any earlier mark in the same row. */
-export function markChoice(keyboard: Keyboard, data: string): Keyboard {
-  const strip = (t: string) => t.replace(/^✓ /, "");
-  const row = keyboard.find((r) => r.some((b) => b.callback_data === data));
-  return keyboard.map((r) =>
-    r === row
-      ? r.map((b) => ({ ...b, text: b.callback_data === data ? `✓ ${strip(b.text)}` : strip(b.text) }))
-      : r,
-  );
-}
-
 /** Group jobs into messages that respect Telegram's length limit. */
 export function buildMessages(unsorted: Job[]): string[] {
-  return buildBatches(unsorted).map((b) => b.text);
-}
-
-export function buildBatches(unsorted: Job[]): Batch[] {
   // Notable companies first, so a long batch leads with what matters.
   // Stable within a tier, preserving the order sources were polled in.
   const jobs = [...unsorted].sort((a, b) => companyRank(a.company) - companyRank(b.company));
 
-  const messages: Batch[] = [];
+  const messages: string[] = [];
   let batch: string[] = [];
-  let batchJobs: Job[] = [];
   let length = 0;
 
   const flush = () => {
-    if (batch.length) messages.push({ text: batch.join("\n\n"), jobs: batchJobs });
+    if (batch.length) messages.push(batch.join("\n\n"));
     batch = [];
-    batchJobs = [];
     length = 0;
   };
 
@@ -126,7 +67,6 @@ export function buildBatches(unsorted: Job[]): Batch[] {
     const block = formatJob(job);
     if (batch.length >= MAX_JOBS_PER_MESSAGE || length + block.length > MAX_CHARS) flush();
     batch.push(block);
-    batchJobs.push(job);
     length += block.length + 2;
   }
   flush();
@@ -138,7 +78,7 @@ export function buildBatches(unsorted: Job[]): Batch[] {
   const topTier = matchTiers(jobs[0]?.company ?? "")[0];
   const noun = jobs.length === 1 ? "New internship" : `${jobs.length} new internships`;
   const header = topTier ? `${topTier.emoji} <b>${noun}</b>` : `<b>${noun}</b>`;
-  return messages.map((m, i) => (i === 0 ? { ...m, text: `${header}\n\n${m.text}` } : m));
+  return messages.map((m, i) => (i === 0 ? `${header}\n\n${m}` : m));
 }
 
 /** Last-resort rendering of a message Telegram refused to parse. */
@@ -151,13 +91,7 @@ export function stripHtml(html: string): string {
     .replace(/&amp;/g, "&");
 }
 
-function post(
-  text: string,
-  botToken: string,
-  chatId: string,
-  formatted: boolean,
-  keyboard?: Keyboard,
-): Promise<Response> {
+function post(text: string, botToken: string, chatId: string, formatted: boolean): Promise<Response> {
   return fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -167,18 +101,12 @@ function post(
       ...(formatted ? { parse_mode: "HTML" } : {}),
       disable_web_page_preview: true,
       link_preview_options: { is_disabled: true },
-      ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
     }),
   });
 }
 
-export async function sendMessage(
-  text: string,
-  botToken: string,
-  chatId: string,
-  keyboard?: Keyboard,
-): Promise<void> {
-  const res = await post(text, botToken, chatId, true, keyboard);
+export async function sendMessage(text: string, botToken: string, chatId: string): Promise<void> {
+  const res = await post(text, botToken, chatId, true);
   if (res.ok) return;
 
   const detail = await res.text();
@@ -194,8 +122,6 @@ export async function sendMessage(
    * to unformatted text keeps the listing deliverable and the queue moving.
    */
   if (res.status === 400) {
-    // No keyboard either: the fallback must differ from the rejected message
-    // in everything that could have caused the 400, or it wedges just the same.
     const plain = await post(stripHtml(text), botToken, chatId, false);
     if (plain.ok) return;
     throw new Error(
@@ -208,38 +134,9 @@ export async function sendMessage(
 }
 
 export async function notify(jobs: Job[], botToken: string, chatId: string): Promise<number> {
-  const batches = buildBatches(jobs);
-  for (const batch of batches) {
-    await sendMessage(batch.text, botToken, chatId, feedbackKeyboard(batch.jobs));
+  const messages = buildMessages(jobs);
+  for (const message of messages) {
+    await sendMessage(message, botToken, chatId);
   }
-  return batches.length;
-}
-
-/**
- * Acknowledge a button tap. Telegram shows a spinner on the button until this
- * is called, so it runs even when the tap is otherwise ignored.
- */
-export async function answerCallback(botToken: string, callbackId: string, text?: string): Promise<void> {
-  await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ callback_query_id: callbackId, ...(text ? { text } : {}) }),
-  });
-}
-
-export async function editKeyboard(
-  botToken: string,
-  chatId: string,
-  messageId: number,
-  keyboard: Keyboard,
-): Promise<void> {
-  await fetch(`https://api.telegram.org/bot${botToken}/editMessageReplyMarkup`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      message_id: messageId,
-      reply_markup: { inline_keyboard: keyboard },
-    }),
-  });
+  return messages.length;
 }

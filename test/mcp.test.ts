@@ -2,10 +2,9 @@ import { timingSafeEqual } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import worker from "../src/index";
-import { jobId, loadActivity, loadChanges, loadFeedback, recordTick, saveActivity } from "../src/journal";
+import { loadActivity, loadChanges, recordTick, saveActivity } from "../src/journal";
 import { mcpToken } from "../src/mcp";
 import { loadOverrides } from "../src/settings";
-import { feedbackKeyboard, markChoice, parseFeedbackData } from "../src/telegram";
 import type { Job } from "../src/types";
 
 /** Just enough of KVNamespace for the Worker's json get/put. */
@@ -156,19 +155,10 @@ describe("MCP tuning tools", () => {
     expect(notice.body.text).toContain("robotics");
   });
 
-  it("refuses an exclude that would drop a liked listing, unless forced", async () => {
-    const liked = job({ title: "Quantum Software Intern" });
-    await seed([liked], []);
-    await call("record_feedback", { job_id: jobId(liked), verdict: "up" });
-
-    const refused = await call("add_exclude", { phrase: "quantum", reason: "too niche" });
-    expect(refused.isError).toBe(true);
-    expect(refused.content[0]!.text).toContain("Quantum Software Intern");
-    expect((await loadOverrides(env.STATE)).exclude).toBeUndefined();
-
-    const forced = await call("add_exclude", { phrase: "quantum", reason: "owner said so", force: true });
-    expect(forced.isError).toBeUndefined();
-    expect((await loadOverrides(env.STATE)).exclude).toEqual(["quantum"]);
+  it("previews what an exclude would newly drop", async () => {
+    await seed([job({ title: "Quantum Software Intern" }), job()], []);
+    const result = await call("preview_filters", { add_exclude: ["quantum"] });
+    expect(result.structuredContent.newlyDropped.map((j: Job) => j.title)).toEqual(["Quantum Software Intern"]);
   });
 
   it("reports a failed Telegram notice instead of hiding the applied edit", async () => {
@@ -186,49 +176,5 @@ describe("MCP tuning tools", () => {
     const again = await call("add_include", { phrase: "Robotics", reason: "r" });
     expect(again.structuredContent.changed).toBe(false);
     expect(telegram).toHaveLength(0);
-  });
-});
-
-describe("Telegram feedback buttons", () => {
-  it("gives each listing a 👍/👎 row whose data round-trips", () => {
-    const keyboard = feedbackKeyboard([job(), job({ title: "ML Intern" })]);
-    expect(keyboard).toHaveLength(2);
-    expect(keyboard[1]![0]!.text).toBe("👍 Acme #2");
-    expect(parseFeedbackData(keyboard[0]![1]!.callback_data)).toEqual({ verdict: "down", id: jobId(job()) });
-  });
-
-  it("moves the check mark when a choice changes", () => {
-    const keyboard = feedbackKeyboard([job()]);
-    const up = markChoice(keyboard, keyboard[0]![0]!.callback_data);
-    const down = markChoice(up, keyboard[0]![1]!.callback_data);
-    expect(down[0]!.map((b) => b.text)).toEqual(["👍 Acme", "✓ 👎 Acme"]);
-  });
-
-  it("records a tap from the owner's chat", async () => {
-    const listing = job();
-    await seed([listing], []);
-    const secret = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("admin")))]
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    const keyboard = feedbackKeyboard([listing]);
-
-    await worker.fetch(
-      new Request("https://w.dev/telegram", {
-        method: "POST",
-        headers: { "X-Telegram-Bot-Api-Secret-Token": secret },
-        body: JSON.stringify({
-          callback_query: {
-            id: "cb1",
-            data: keyboard[0]![0]!.callback_data,
-            message: { message_id: 7, chat: { id: 42 }, reply_markup: { inline_keyboard: keyboard } },
-          },
-        }),
-      }),
-      env,
-      ctx,
-    );
-
-    expect((await loadFeedback(env.STATE))[jobId(listing)]).toMatchObject({ verdict: "up", by: "telegram" });
-    expect(telegram.map((t) => t.method)).toEqual(["answerCallbackQuery", "editMessageReplyMarkup"]);
   });
 });

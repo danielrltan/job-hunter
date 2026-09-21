@@ -2,20 +2,12 @@ import { handleCommand } from "./commands";
 import { HEARTBEAT_DAYS, MAX_NOTIFY_PER_TICK, SOURCES } from "./config";
 import { dedupeKey, filterJobs } from "./filter";
 import { diffSince } from "./github";
-import { loadActivity, recordTick, saveActivity, saveFeedback } from "./journal";
+import { loadActivity, recordTick, saveActivity } from "./journal";
 import { handleMcp, mcpToken } from "./mcp";
 import { parseAdded } from "./parsers";
 import { loadSettings } from "./settings";
 import { loadMeta, loadSeen, loadShas, saveMeta, saveSeen, saveShas } from "./state";
-import {
-  answerCallback,
-  editKeyboard,
-  markChoice,
-  notify,
-  parseFeedbackData,
-  sendMessage,
-  type Keyboard,
-} from "./telegram";
+import { notify, sendMessage } from "./telegram";
 import type { Job, RejectedJob } from "./types";
 
 interface TickReport {
@@ -251,15 +243,6 @@ async function webhookSecret(env: Env): Promise<string> {
 
 interface TelegramUpdate {
   message?: { text?: string; chat?: { id?: number | string } };
-  callback_query?: {
-    id: string;
-    data?: string;
-    message?: {
-      message_id: number;
-      chat?: { id?: number | string };
-      reply_markup?: { inline_keyboard?: Keyboard };
-    };
-  };
 }
 
 /**
@@ -274,11 +257,6 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
   }
 
   const update = (await request.json()) as TelegramUpdate;
-  if (update.callback_query) {
-    await handleFeedbackTap(update.callback_query, env);
-    return json({ ok: true });
-  }
-
   const text = update.message?.text ?? "";
   const chatId = String(update.message?.chat?.id ?? "");
 
@@ -292,51 +270,6 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
   const reply = await handleCommand(text, env);
   if (reply) await sendMessage(reply, env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID);
   return json({ ok: true });
-}
-
-/**
- * A 👍/👎 tap on a listing. Stored as feedback for the MCP tuning tools, then
- * the tapped button gets a check mark so it's clear the tap registered.
- */
-async function handleFeedbackTap(
-  query: NonNullable<TelegramUpdate["callback_query"]>,
-  env: Env,
-): Promise<void> {
-  const chatId = String(query.message?.chat?.id ?? "");
-  const parsed = parseFeedbackData(query.data ?? "");
-
-  if (chatId !== env.TELEGRAM_CHAT_ID || !parsed) {
-    await answerCallback(env.TELEGRAM_BOT_TOKEN, query.id);
-    return;
-  }
-
-  const activity = await loadActivity(env.STATE);
-  const job = activity.sent.find((j) => j.id === parsed.id);
-  await saveFeedback(env.STATE, parsed.id, {
-    verdict: parsed.verdict,
-    ts: Math.floor(Date.now() / 1000),
-    by: "telegram",
-    ...(job
-      ? { job: { company: job.company, title: job.title, url: job.url, sourceId: job.sourceId } }
-      : {}),
-  });
-
-  const label = job ? ` — ${job.company}` : "";
-  await answerCallback(
-    env.TELEGRAM_BOT_TOKEN,
-    query.id,
-    `${parsed.verdict === "up" ? "👍" : "👎"} Noted${label}`,
-  );
-
-  const keyboard = query.message?.reply_markup?.inline_keyboard;
-  if (keyboard && query.message) {
-    await editKeyboard(
-      env.TELEGRAM_BOT_TOKEN,
-      env.TELEGRAM_CHAT_ID,
-      query.message.message_id,
-      markChoice(keyboard, query.data!),
-    );
-  }
 }
 
 function json(body: unknown, status = 200): Response {
@@ -410,8 +343,7 @@ export default {
             body: JSON.stringify({
               url: webhookUrl,
               secret_token: await webhookSecret(env),
-              // callback_query carries the 👍/👎 taps on listings.
-              allowed_updates: ["message", "callback_query"],
+              allowed_updates: ["message"],
             }),
           });
 

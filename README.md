@@ -183,55 +183,39 @@ is not.
 
 `POST /mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
 server, so an agent such as Meta's Muse can see what the Worker has been
-sending and dropping, and adjust the filters.
+sending and dropping, and adjust the filters from what it knows about you.
 
-The loop needs signals in both directions. Alerts show what to tighten, and
+Tuning needs visibility in both directions. Alerts show what to tighten, and
 **drops** show what the rules are wrongly discarding — so every tick that
-parses listings now keeps a rolling sample of both, with the reason each drop
-was made. The preference signal comes from **👍/👎 buttons** under every
-listing in Telegram.
+parses listings keeps a rolling sample of both, with the reason each drop was
+made.
 
 | Tool | Does |
 |---|---|
 | `get_status`, `get_filters` | what's running and the complete rule set |
-| `recent_jobs` | sent listings, with any 👍/👎 |
+| `recent_jobs` | sent listings |
 | `recent_rejections` | dropped listings with reasons, plus counts per reason |
-| `list_feedback`, `get_change_log` | ratings, and every filter edit — yours and the agent's |
+| `get_change_log` | every filter edit — yours and the agent's |
 | `preview_filters` | dry run: what a proposed edit would newly match or drop |
 | `add_include`, `add_exclude`, `remove_phrase`, `set_terms`, `set_paused` | edits |
-| `record_feedback` | rate a listing from conversation ("I applied to that one") |
 
 Guardrails, because an agent that quietly over-excludes would look exactly
 like a slow hiring week:
 
 - Every agent edit is **announced in Telegram** with its reason, and `/unset`
   undoes it.
-- `add_exclude` refuses to drop a listing you gave 👍 unless the agent passes
-  `force`.
 - Every edit needs a reason and lands in the change log; each list is capped.
 - There is deliberately no reset tool.
 
-The log starts empty on deploy. Until a week or two of listings has built up,
-`preview_filters` has little to evaluate and the 👍 guard has little to protect,
-so treat early "this changes nothing" previews as absence of evidence. The
-Telegram announcement is the backstop meanwhile.
+The log starts empty on deploy, so `preview_filters` has little to evaluate
+for the first week or two.
 
 **Connecting Muse**
 
-1. Deploy, then re-run `/setup-webhook?key=…` once so Telegram starts delivering
-   button taps.
-2. `curl "https://job-hunter.<your-subdomain>.workers.dev/mcp-token?key=$ADMIN_KEY"`
-   prints the URL and bearer header. The token is derived from `ADMIN_KEY`;
-   rotating that rotates it.
-3. Tell Muse something like:
-
-   > Build a custom integration to my job-hunter bot. Its MCP server URL is
-   > `<url>`, over streamable HTTP, with the bearer token I'll give you in the
-   > credential prompt. Test every read tool, show me the results, and save it
-   > as a skill. Then once a week: read my feedback and change log, look for
-   > good roles in recent_rejections and noise in recent_jobs, run
-   > preview_filters on anything you'd change, and make small edits with a
-   > reason.
+`curl "https://job-hunter.<your-subdomain>.workers.dev/mcp-token?key=$ADMIN_KEY"`
+prints the URL and bearer header. The token is derived from `ADMIN_KEY`;
+rotating that rotates it. Give Muse the URL, and the token through its
+credential prompt.
 
 ## Operations
 
@@ -242,7 +226,7 @@ Telegram announcement is the backstop meanwhile.
 | `/state?key=…` | current per-source commits and seen-count |
 | `/test?key=…` | send a test Telegram message |
 | `/reset-seen?key=…` | clear dedupe memory |
-| `/setup-webhook?key=…` | register Telegram commands and button taps |
+| `/setup-webhook?key=…` | register Telegram commands |
 | `/mcp-token?key=…` | URL and bearer header for the MCP server |
 | `POST /mcp` | MCP server (bearer auth) |
 

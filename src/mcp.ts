@@ -10,11 +10,8 @@ import { evaluate } from "./filter";
 import {
   loadActivity,
   loadChanges,
-  loadFeedback,
   logChange,
   reasonBucket,
-  saveFeedback,
-  type Feedback,
   type LoggedJob,
 } from "./journal";
 import {
@@ -52,10 +49,10 @@ const SUPPORTED_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const INSTRUCTIONS = `job-hunter watches GitHub internship repos and sends matching listings to its owner's Telegram.
 The owner is a student based in Canada who needs US sponsorship, looking for SWE / AI / ML / data / product internships.
 
-Tuning loop:
-1. Read list_feedback (👍/👎 taps from Telegram) and get_change_log (the owner's own hand edits are the strongest signal — don't undo them).
-2. Read recent_jobs for false positives and recent_rejections for false negatives (good roles dropped by the rules).
-3. Before any edit, run preview_filters with the proposed change and check what it would newly match or drop.
+Tune these filters from what you know about the owner — their background, interests, and goals.
+1. Read get_filters, and get_change_log: the owner's own hand edits (by "telegram") are deliberate; don't undo them.
+2. Read recent_jobs for noise the owner wouldn't want, and recent_rejections for good roles the rules wrongly dropped.
+3. Before any edit, run preview_filters with the proposed change and check everything it would newly match or drop.
 4. Make small, specific edits with a reason. Every edit is announced to the owner in Telegram.
 Phrases are literal, case-insensitive substrings of the job title — not regexes.`;
 
@@ -88,7 +85,7 @@ function iso(ts: number): string {
   return new Date(ts * 1000).toISOString();
 }
 
-function brief(job: LoggedJob, feedback?: Feedback) {
+function brief(job: LoggedJob) {
   return {
     id: job.id,
     at: iso(job.ts),
@@ -100,7 +97,6 @@ function brief(job: LoggedJob, feedback?: Feedback) {
     source: job.sourceId,
     url: job.url,
     ...(job.reason ? { reason: job.reason } : {}),
-    ...(feedback ? { feedback: feedback.verdict, feedbackNote: feedback.note } : {}),
   };
 }
 
@@ -114,11 +110,7 @@ class ToolError extends Error {}
 
 /** Re-run the real filter over the logged jobs with proposed overrides. */
 async function simulate(env: Env, proposed: Overrides) {
-  const [activity, feedback, current] = await Promise.all([
-    loadActivity(env.STATE),
-    loadFeedback(env.STATE),
-    loadOverrides(env.STATE),
-  ]);
+  const [activity, current] = await Promise.all([loadActivity(env.STATE), loadOverrides(env.STATE)]);
   const before = buildSettings(current);
   const after = buildSettings(proposed);
 
@@ -132,8 +124,8 @@ async function simulate(env: Env, proposed: Overrides) {
     const was = evaluate(job, src, before);
     const will = evaluate(job, src, after);
     if (will.ok) kept++;
-    if (!was.ok && will.ok) newlyMatched.push(brief(job, feedback[job.id]));
-    if (was.ok && !will.ok) newlyDropped.push({ ...brief(job, feedback[job.id]), reason: will.reason });
+    if (!was.ok && will.ok) newlyMatched.push(brief(job));
+    if (was.ok && !will.ok) newlyDropped.push({ ...brief(job), reason: will.reason });
   }
 
   return {
@@ -141,7 +133,6 @@ async function simulate(env: Env, proposed: Overrides) {
     wouldMatch: kept,
     newlyMatched,
     newlyDropped,
-    likedJobsLost: newlyDropped.filter((j) => j.feedback === "up").length,
   };
 }
 
@@ -248,28 +239,20 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "recent_jobs",
-    description: "Listings that were sent to the owner, newest first, with any 👍/👎 they gave.",
+    description: "Listings that were sent to the owner, newest first.",
     inputSchema: {
       type: "object",
       properties: {
         limit: int("Default 30.", 150),
         since_hours: int("Only jobs sent in the last N hours.", 24 * 120),
-        feedback: { type: "string", enum: ["up", "down", "none", "any"], description: "Default any." },
       },
     },
     annotations: READ,
     async run(args, { env }) {
-      const [activity, feedback] = await Promise.all([loadActivity(env.STATE), loadFeedback(env.STATE)]);
+      const activity = await loadActivity(env.STATE);
       const cutoff = typeof args.since_hours === "number" ? now() - args.since_hours * 3600 : 0;
-      const want = (args.feedback as string) ?? "any";
-      const jobs = activity.sent
-        .filter((j) => j.ts >= cutoff)
-        .filter((j) => {
-          const f = feedback[j.id]?.verdict;
-          return want === "any" || (want === "none" ? !f : f === want);
-        })
-        .slice(0, Number(args.limit ?? 30));
-      return { count: jobs.length, jobs: jobs.map((j) => brief(j, feedback[j.id])) };
+      const jobs = activity.sent.filter((j) => j.ts >= cutoff).slice(0, Number(args.limit ?? 30));
+      return { count: jobs.length, jobs: jobs.map((j) => brief(j)) };
     },
   },
   {
@@ -301,21 +284,6 @@ export const TOOLS: Tool[] = [
         sampleSize: activity.rejected.length,
         sampleCountsByReason: sample,
         jobs: jobs.map((j) => brief(j)),
-      };
-    },
-  },
-  {
-    name: "list_feedback",
-    description: "Every 👍/👎 the owner has given, newest first — from Telegram buttons or recorded by you.",
-    inputSchema: { type: "object", properties: { limit: int("Default 100.", 500) } },
-    annotations: READ,
-    async run(args, { env }) {
-      const all = Object.entries(await loadFeedback(env.STATE))
-        .sort((a, b) => b[1].ts - a[1].ts)
-        .slice(0, Number(args.limit ?? 100));
-      return {
-        count: all.length,
-        feedback: all.map(([id, f]) => ({ id, at: iso(f.ts), ...f, ts: undefined })),
       };
     },
   },
@@ -375,14 +343,10 @@ export const TOOLS: Tool[] = [
   {
     name: "add_exclude",
     description:
-      "Never alert on titles containing this phrase (literal, case-insensitive). Refused if it would drop a listing the owner gave 👍, unless force is true. Announced in Telegram.",
+      "Never alert on titles containing this phrase (literal, case-insensitive). Announced in Telegram.",
     inputSchema: {
       type: "object",
-      properties: {
-        phrase: str("Literal phrase."),
-        reason: reasonProp,
-        force: { type: "boolean", description: "Apply even though it drops liked listings. Only with the owner's say-so." },
-      },
+      properties: { phrase: str("Literal phrase."), reason: reasonProp },
       required: ["phrase", "reason"],
     },
     annotations: WRITE,
@@ -390,17 +354,6 @@ export const TOOLS: Tool[] = [
       const phrase = requireString(args, "phrase");
       const reason = requireString(args, "reason");
       const edit = addPhrase(await loadOverrides(ctx.env.STATE), "exclude", phrase);
-      if (edit.ok && edit.changed && args.force !== true) {
-        const sim = await simulate(ctx.env, edit.next);
-        const liked = sim.newlyDropped.filter((j) => j.feedback === "up");
-        if (liked.length) {
-          throw new ToolError(
-            `refused: this would drop ${liked.length} listing(s) the owner liked — ` +
-              liked.map((j) => `${j.company}: ${j.title}`).join("; ") +
-              ". Ask the owner, then retry with force: true.",
-          );
-        }
-      }
       return commit(ctx, edit, "exclude", phrase, reason, `now ignores <b>${escapeHtml(phrase)}</b>\nUndo: /unset ${escapeHtml(phrase)}`);
     },
   },
@@ -457,37 +410,6 @@ export const TOOLS: Tool[] = [
         changed: (overrides.paused ?? false) !== args.paused,
       };
       return commit(ctx, edit, args.paused ? "pause" : "resume", "", reason, args.paused ? "paused alerts" : "resumed alerts");
-    },
-  },
-  {
-    name: "record_feedback",
-    description:
-      "Record the owner's opinion of a listing when they tell you in conversation (e.g. 'I applied to that one', 'not interested in quant'). Use a job id from recent_jobs or recent_rejections.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        job_id: str("8-character id."),
-        verdict: { type: "string", enum: ["up", "down"] },
-        note: str("What the owner said, briefly."),
-      },
-      required: ["job_id", "verdict"],
-    },
-    annotations: WRITE,
-    async run(args, { env }) {
-      const id = requireString(args, "job_id");
-      const verdict = args.verdict;
-      if (verdict !== "up" && verdict !== "down") throw new ToolError(`"verdict" must be "up" or "down"`);
-      const activity = await loadActivity(env.STATE);
-      const job = [...activity.sent, ...activity.rejected].find((j) => j.id === id);
-      if (!job) throw new ToolError(`no logged job with id ${id}`);
-      await saveFeedback(env.STATE, id, {
-        verdict,
-        ts: now(),
-        by: "muse",
-        ...(typeof args.note === "string" ? { note: args.note.slice(0, 200) } : {}),
-        job: { company: job.company, title: job.title, url: job.url, sourceId: job.sourceId },
-      });
-      return { ok: true };
     },
   },
 ];
