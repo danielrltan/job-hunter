@@ -18,6 +18,18 @@
     }
   ],
 
+  // Emails the owner when new listings enter the agent's queue, so an agent
+  // with an "on new email" trigger (Muse) picks them up immediately. Optional:
+  // remove this block and the Worker skips the email. The destination must be a
+  // verified Email Routing address, and AGENT_EMAIL_FROM in src/config.ts must
+  // be on a domain with Email Routing enabled.
+  "send_email": [
+    {
+      "name": "AGENT_EMAIL",
+      "destination_address": "danielrltan@gmail.com"
+    }
+  ],
+
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1

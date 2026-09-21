@@ -386,3 +386,22 @@ export const MAX_NOTIFY_PER_TICK = 40;
  * system prove it is working, so silence becomes evidence of a fault.
  */
 export const HEARTBEAT_DAYS = 7;
+
+/**
+ * Sender for the queue-nudge email (see src/email.ts). Must be an address on a
+ * domain with Cloudflare Email Routing enabled.
+ */
+export const AGENT_EMAIL_FROM = "jobs@danielrltan.com";
+
+/** Must match the send_email binding's destination_address in wrangler.jsonc. */
+export const AGENT_EMAIL_TO = "danielrltan@gmail.com";
+
+/** Subject prefix an agent's email trigger can match on. Keep it stable. */
+export const AGENT_EMAIL_SUBJECT = "[job-hunter]";
+
+/**
+ * At most one nudge per this many minutes; each covers everything queued since
+ * the last. The agent drains the whole queue per run, so more would only wake
+ * it to find nothing left.
+ */
+export const AGENT_EMAIL_MIN_MINUTES = 10;

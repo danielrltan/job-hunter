@@ -225,7 +225,7 @@ describe("zapply", () => {
     parser: "zapply",
     assumeInternship: true,
   };
-  const fixture = readFileSync(new URL("./fixtures/zapply-README.md", import.meta.url), "utf8");
+  const fixture = readFileSync(join(import.meta.dirname, "fixtures", "zapply-README.md"), "utf8");
   const hunks = [fixture.split("\n").map((text) => ({ text, added: true }))];
   const jobs = parseAdded(src, hunks);
 
