@@ -33,8 +33,6 @@ export type SeenMap = Record<string, number>;
 export interface Meta {
   lastNotifyTs?: number;
   lastHeartbeatTs?: number;
-  /** Last queue-nudge email to the agent. */
-  lastAgentEmailTs?: number;
 }
 
 export interface TickState {

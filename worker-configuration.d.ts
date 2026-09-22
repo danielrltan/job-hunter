@@ -3,7 +3,6 @@
 // Runtime types generated with workerd@1.20260714.1 2026-07-19 nodejs_compat
 interface __BaseEnv_Env {
 	STATE: KVNamespace;
-	AGENT_EMAIL?: SendEmail;
 	GITHUB_TOKEN: string;
 	TELEGRAM_BOT_TOKEN: string;
 	TELEGRAM_CHAT_ID: string;

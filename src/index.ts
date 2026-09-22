@@ -1,9 +1,8 @@
 import { handleCommand } from "./commands";
-import { buildNudge, jobsToNudge, sendNudge } from "./email";
-import { AGENT_EMAIL_TO, HEARTBEAT_DAYS, MAX_NOTIFY_PER_TICK, SOURCES } from "./config";
+import { HEARTBEAT_DAYS, MAX_NOTIFY_PER_TICK, SOURCES } from "./config";
 import { dedupeKey, filterJobs } from "./filter";
 import { diffSince } from "./github";
-import { recordTick, type LoggedJob } from "./journal";
+import { recordTick } from "./journal";
 import { handleMcp, mcpToken } from "./mcp";
 import { parseAdded } from "./parsers";
 import { loadSettings } from "./settings";
@@ -165,7 +164,6 @@ export async function runOnce(env: Env): Promise<TickReport> {
     dirty = true;
   }
   if (await runHeartbeat(env, now, report, tick.meta)) dirty = true;
-  if (await nudgeAgent(env, now, tick.activity.sent, tick.meta)) dirty = true;
   if (dirty) await saveTickState(env.STATE, tick);
 
   if (
@@ -227,28 +225,6 @@ async function runHeartbeat(
   }
 
   return dirty;
-}
-
-/**
- * Email the owner when listings are waiting in the agent's queue, so an agent
- * triggered by new email processes them now rather than on its next poll.
- * Runs on idle ticks too: a nudge held back by the rate limit goes out on the
- * first tick after it lifts. Never throws — alerts matter more than the nudge.
- */
-async function nudgeAgent(env: Env, now: number, sent: LoggedJob[], meta: Meta): Promise<boolean> {
-  if (!env.AGENT_EMAIL) return false;
-  const jobs = jobsToNudge(sent, meta.lastAgentEmailTs, now);
-  if (!jobs.length) return false;
-
-  try {
-    await sendNudge(env.AGENT_EMAIL, AGENT_EMAIL_TO, buildNudge(jobs, AGENT_EMAIL_TO, new Date(now * 1000)));
-    meta.lastAgentEmailTs = now;
-    log("agent_nudge", { jobs: jobs.length });
-    return true;
-  } catch (err) {
-    log("agent_nudge_error", { message: err instanceof Error ? err.message : String(err) });
-    return false;
-  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -409,15 +385,6 @@ export default {
             setWebhook: await hook.json(),
             setMyCommands: await menu.json(),
           });
-        }
-
-        case "/test-nudge": {
-          // Sends the agent's queue email now, for testing its email trigger.
-          if (!env.AGENT_EMAIL) return json({ error: "no AGENT_EMAIL binding" }, 400);
-          const sent = (await loadTickState(env.STATE)).activity.sent.slice(0, 3);
-          const now = new Date();
-          await sendNudge(env.AGENT_EMAIL, AGENT_EMAIL_TO, buildNudge(sent, AGENT_EMAIL_TO, now));
-          return json({ ok: true, to: AGENT_EMAIL_TO, jobs: sent.length });
         }
 
         case "/mcp-token":

@@ -219,18 +219,6 @@ runs don't double-apply; a claim left `in_progress` for 6 hours is offered
 again, in case a run died mid-form. The queue holds the last 400 sent
 listings.
 
-**Waking the agent.** An MCP server can't call an agent; the agent has to
-poll. So when listings enter the queue the Worker also emails the owner —
-subject starting `[job-hunter]`, at most one per 10 minutes, each covering
-everything since the last — and an agent with an "on new email" trigger
-(Muse has one) processes the queue straight away. It goes out through
-Cloudflare Email Routing's `send_email` binding, so it needs a domain with
-Email Routing on and a verified destination address: see `send_email` in
-`wrangler.jsonc` and `AGENT_EMAIL_*` in `src/config.ts`, or delete the binding
-to turn it off. The email carries counts and company names only — listing text
-is scraped from public repos, so the agent should meet it as tool data, not in
-the message that wakes it. `/test-nudge?key=…` sends one now.
-
 The log starts empty on deploy, so `preview_filters` has little to evaluate
 for the first week or two.
 
@@ -252,7 +240,6 @@ credential prompt.
 | `/reset-seen?key=…` | clear dedupe memory |
 | `/setup-webhook?key=…` | register Telegram commands |
 | `/mcp-token?key=…` | URL and bearer header for the MCP server |
-| `/test-nudge?key=…` | send the agent's queue email now |
 | `POST /mcp` | MCP server (bearer auth) |
 
 ```bash
