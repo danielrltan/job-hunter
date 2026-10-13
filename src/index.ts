@@ -209,7 +209,8 @@ export async function runOnce(env: Env, opts: RunOptions = {}): Promise<TickRepo
     report.changed.length ||
     report.notified ||
     report.errors.length ||
-    report.bootstrapped.length
+    report.bootstrapped.length ||
+    report.linkedin !== undefined
   ) {
     log("tick", { ...report });
   }
