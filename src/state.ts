@@ -33,6 +33,10 @@ export type SeenMap = Record<string, number>;
 export interface Meta {
   lastNotifyTs?: number;
   lastHeartbeatTs?: number;
+  /** Last LinkedIn poll that got an answer, kept to the hour. Absent until the first, which only primes dedupe. */
+  linkedinOkTs?: number;
+  /** When the "LinkedIn keeps refusing" warning last went out. */
+  linkedinAlertTs?: number;
 }
 
 export interface TickState {

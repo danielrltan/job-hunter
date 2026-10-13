@@ -1,6 +1,6 @@
 # job-hunter
 
-Watches eleven GitHub internship-listing repos and pushes a Telegram message
+Watches eleven GitHub internship-listing repos and LinkedIn, and pushes a Telegram message
 within ~2 minutes of a relevant new posting appearing.
 
 Filtered for SWE / AI / ML / data / product internships, for someone based in
@@ -43,6 +43,24 @@ the next tick to retry the same commits rather than silently dropping jobs.
 | `zapplyjobs/awesome-ml-internships-2027` | markdown | auto-scraped, mostly not in Simplify, has a sponsor column |
 | `zapplyjobs/Canada-Internships-2027` | markdown | Canadian internships and co-ops |
 | `zapplyjobs/Internships-2027` | markdown | README is big enough that GitHub omits many diffs — partial coverage |
+| LinkedIn job search | HTML | logged-out, every 30 min, last 2 h — see below |
+
+### LinkedIn
+
+`src/linkedin.ts` polls the HTML fragment LinkedIn's public `/jobs` page loads
+as you scroll (`/jobs-guest/jobs/api/seeMoreJobPostings/search`), with
+`f_TPR=r7200` for postings from the last two hours. No account is involved, so
+there is no session to get banned. The searches and cadence are
+`LINKEDIN_SEARCHES` and `LINKEDIN_EVERY_MINUTES` in `src/config.ts`; matches
+go through the same filter and dedupe as everything else.
+
+- The first poll after deploy only primes dedupe, like a repo's bootstrap.
+- LinkedIn rate-limits bursts with a 429 and a redirect page. A refused
+  search is an error in `/run`'s report, never "no new jobs", and if every
+  search is refused for `LINKEDIN_STALE_HOURS` the bot says so in Telegram.
+- Only search cards are read. The per-posting detail endpoint is
+  rate-limited far harder.
+- `/run?key=…&linkedin` forces a poll.
 
 These repos roll over each year (`2026-` → `2027-`). GitHub's API follows the
 rename automatically, so nothing breaks; update `src/config.ts` when convenient

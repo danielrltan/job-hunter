@@ -386,3 +386,20 @@ export const MAX_NOTIFY_PER_TICK = 40;
  * system prove it is working, so silence becomes evidence of a fault.
  */
 export const HEARTBEAT_DAYS = 7;
+
+/**
+ * LinkedIn's logged-out job search (src/linkedin.ts), polled every
+ * `LINKEDIN_EVERY_MINUTES` for postings from the last `LINKEDIN_WINDOW_SECONDS`.
+ * The window is a few polls wide so a poll LinkedIn refuses loses nothing;
+ * dedupe drops the overlap. A US "software intern" search found about 14
+ * postings in an hour when probed, within the three pages fetched per search.
+ */
+export const LINKEDIN_SEARCHES = [
+  { keywords: "software engineer intern", location: "United States" },
+  { keywords: "machine learning intern", location: "United States" },
+  { keywords: "software intern", location: "Canada" },
+];
+export const LINKEDIN_EVERY_MINUTES = 30;
+export const LINKEDIN_WINDOW_SECONDS = 2 * 3600;
+/** Say so in Telegram when every LinkedIn search has been refused for this long. */
+export const LINKEDIN_STALE_HOURS = 12;

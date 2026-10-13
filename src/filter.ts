@@ -52,7 +52,11 @@ function matchesAny(patterns: RegExp[], text: string): boolean {
  * Order matters: the cheapest and most decisive checks run first so that
  * rejection reasons in the preview tool point at the real disqualifier.
  */
-export function evaluate(job: Job, src: Source, settings: Settings = defaultSettings()): Verdict {
+export function evaluate(
+  job: Job,
+  src: Pick<Source, "assumeInternship">,
+  settings: Settings = defaultSettings(),
+): Verdict {
   const title = job.title;
   const locationText = job.locations.join(" | ");
   const fullText = `${title} ${locationText}`;
@@ -114,7 +118,7 @@ export function evaluate(job: Job, src: Source, settings: Settings = defaultSett
 
 export function filterJobs(
   jobs: Job[],
-  src: Source,
+  src: Pick<Source, "assumeInternship">,
   settings: Settings = defaultSettings(),
 ): { matched: Job[]; rejected: RejectedJob[] } {
   const matched: Job[] = [];

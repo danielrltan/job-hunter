@@ -1,5 +1,7 @@
 import {
   HEARTBEAT_DAYS,
+  LINKEDIN_EVERY_MINUTES,
+  LINKEDIN_SEARCHES,
   ROLE_HARD_EXCLUDE,
   ROLE_INCLUDE,
   ROLE_SOFT_EXCLUDE,
@@ -7,6 +9,7 @@ import {
   TARGET_TERMS,
 } from "./config";
 import { evaluate } from "./filter";
+import { LINKEDIN_SOURCE } from "./linkedin";
 import {
   APPLICATION_STATUSES,
   loadActivity,
@@ -132,7 +135,8 @@ async function simulate(env: Env, proposed: Overrides) {
   let kept = 0;
 
   for (const job of [...activity.sent, ...activity.rejected]) {
-    const src = SOURCES.find((s) => s.id === job.sourceId);
+    const src =
+      job.sourceId === LINKEDIN_SOURCE.id ? LINKEDIN_SOURCE : SOURCES.find((s) => s.id === job.sourceId);
     if (!src) continue;
     const was = evaluate(job, src, before);
     const will = evaluate(job, src, after);
@@ -209,6 +213,11 @@ export const TOOLS: Tool[] = [
         pollEveryMinutes: 2,
         sourcesTracked: SOURCES.filter((s) => shas[s.id]).length,
         sources: SOURCES.map((s) => ({ id: s.id, label: s.label, repo: `${s.owner}/${s.repo}` })),
+        linkedin: {
+          searches: LINKEDIN_SEARCHES,
+          everyMinutes: LINKEDIN_EVERY_MINUTES,
+          lastAnsweredAt: meta.linkedinOkTs ? iso(meta.linkedinOkTs) : null,
+        },
         jobsRemembered: Object.keys(seen).length,
         lastAlertAt: meta.lastNotifyTs ? iso(meta.lastNotifyTs) : null,
         heartbeatAfterQuietDays: HEARTBEAT_DAYS,

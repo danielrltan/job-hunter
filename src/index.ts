@@ -1,8 +1,16 @@
 import { handleCommand } from "./commands";
-import { HEARTBEAT_DAYS, MAX_NOTIFY_PER_TICK, SOURCES } from "./config";
+import {
+  HEARTBEAT_DAYS,
+  LINKEDIN_EVERY_MINUTES,
+  LINKEDIN_SEARCHES,
+  LINKEDIN_STALE_HOURS,
+  MAX_NOTIFY_PER_TICK,
+  SOURCES,
+} from "./config";
 import { dedupeKey, filterJobs } from "./filter";
 import { diffSince } from "./github";
 import { recordTick } from "./journal";
+import { LINKEDIN_SOURCE, pollLinkedIn } from "./linkedin";
 import { handleMcp, mcpToken } from "./mcp";
 import { parseAdded } from "./parsers";
 import { loadSettings } from "./settings";
@@ -20,6 +28,13 @@ interface TickReport {
   capped: number;
   truncated: string[];
   errors: string[];
+  /** Cards LinkedIn returned, when it was polled this tick. */
+  linkedin?: number;
+}
+
+export interface RunOptions {
+  /** Poll LinkedIn too. The cron does every `LINKEDIN_EVERY_MINUTES`; /run does with ?linkedin. */
+  linkedin?: boolean;
 }
 
 function log(event: string, fields: Record<string, unknown> = {}): void {
@@ -49,7 +64,7 @@ function missingSecrets(env: Env): string[] {
  * Telegram outage means the next tick re-diffs the same commits and retries
  * rather than dropping listings on the floor.
  */
-export async function runOnce(env: Env): Promise<TickReport> {
+export async function runOnce(env: Env, opts: RunOptions = {}): Promise<TickReport> {
   const report: TickReport = {
     changed: [],
     bootstrapped: [],
@@ -83,6 +98,8 @@ export async function runOnce(env: Env): Promise<TickReport> {
   const shas = tick.shas;
   const nextShas: Record<string, string> = { ...shas };
   const candidates: Job[] = [];
+  /** Matches marked seen without a message: the first LinkedIn poll's backlog. */
+  const primed: Job[] = [];
   const rejected: RejectedJob[] = [];
   let sent: Job[] = [];
 
@@ -116,11 +133,32 @@ export async function runOnce(env: Env): Promise<TickReport> {
     }
   }
 
+  let linkedinAnswered = false;
+  if (opts.linkedin) {
+    const { jobs, errors } = await pollLinkedIn();
+    report.linkedin = jobs.length;
+    report.parsed += jobs.length;
+    for (const e of errors) report.errors.push(`linkedin: ${e}`);
+    if (errors.length) log("linkedin_refused", { errors });
+
+    linkedinAnswered = errors.length < LINKEDIN_SEARCHES.length;
+    const result = filterJobs(jobs, LINKEDIN_SOURCE, settings);
+    // The first poll would otherwise announce a whole window of postings at once.
+    (tick.meta.linkedinOkTs ? candidates : primed).push(...result.matched);
+    rejected.push(...result.rejected);
+  }
+
   report.matched = candidates.length;
 
-  if (candidates.length) {
+  if (candidates.length || primed.length) {
     const seen = await loadSeen(env.STATE);
     const fresh: Job[] = [];
+    let primedNew = false;
+    for (const job of primed) {
+      const key = dedupeKey(job);
+      if (!seen[key]) primedNew = true;
+      seen[key] ??= now;
+    }
 
     // Also collapses the same posting arriving from two repos in one tick.
     for (const job of candidates) {
@@ -147,8 +185,8 @@ export async function runOnce(env: Env): Promise<TickReport> {
       }
       report.notified = announce.length;
       sent = announce;
-      await saveSeen(env.STATE, seen);
     }
+    if (fresh.length || primedNew) await saveSeen(env.STATE, seen);
   }
 
   // Everything below lands in one write, and an idle tick — most of the day —
@@ -164,6 +202,7 @@ export async function runOnce(env: Env): Promise<TickReport> {
     dirty = true;
   }
   if (await runHeartbeat(env, now, report, tick.meta)) dirty = true;
+  if (opts.linkedin && (await trackLinkedIn(env, now, linkedinAnswered, report, tick.meta))) dirty = true;
   if (dirty) await saveTickState(env.STATE, tick);
 
   if (
@@ -225,6 +264,52 @@ async function runHeartbeat(
   }
 
   return dirty;
+}
+
+/**
+ * LinkedIn may refuse Cloudflare's addresses outright, and a refused poll
+ * looks like a quiet one from Telegram. Record when it last answered (to the
+ * hour, to spare KV writes) and say so once when it has stopped answering.
+ */
+async function trackLinkedIn(
+  env: Env,
+  now: number,
+  answered: boolean,
+  report: TickReport,
+  meta: Meta,
+): Promise<boolean> {
+  if (answered) {
+    if (meta.linkedinOkTs && now - meta.linkedinOkTs < 3600) return false;
+    meta.linkedinOkTs = now;
+    return true;
+  }
+
+  const since = meta.linkedinOkTs ?? meta.linkedinAlertTs;
+  if (since === undefined) {
+    // Never answered yet: start the clock rather than warning on the first refusal.
+    meta.linkedinAlertTs = now;
+    return true;
+  }
+  if (now - since < LINKEDIN_STALE_HOURS * 3600) return false;
+  // Once per outage; while it has never answered, every LINKEDIN_STALE_HOURS.
+  if (meta.linkedinOkTs && (meta.linkedinAlertTs ?? 0) > meta.linkedinOkTs) return false;
+  try {
+    await sendMessage(
+      `⚠️ <b>LinkedIn isn't answering</b>\n\nEvery search has been refused for ${Math.floor((now - since) / 3600)}h. ` +
+        `The GitHub sources are unaffected.\n\n<i>Last error: ${escapeHtml(report.errors.at(-1) ?? "unknown")}</i>`,
+      env.TELEGRAM_BOT_TOKEN,
+      env.TELEGRAM_CHAT_ID,
+    );
+    meta.linkedinAlertTs = now;
+    return true;
+  } catch (err) {
+    log("linkedin_alert_error", { message: err instanceof Error ? err.message : String(err) });
+    return false;
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /* ------------------------------------------------------------------ */
@@ -293,8 +378,9 @@ function json(body: unknown, status = 200): Response {
 }
 
 export default {
-  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
-    await runOnce(env);
+  async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
+    const minute = new Date(controller.scheduledTime).getUTCMinutes();
+    await runOnce(env, { linkedin: minute % LINKEDIN_EVERY_MINUTES === 0 });
   },
 
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -306,7 +392,7 @@ export default {
       return json({
         ok: true,
         ready: missingSecrets(env).length === 0,
-        sources: SOURCES.map((s) => s.id),
+        sources: [...SOURCES.map((s) => s.id), LINKEDIN_SOURCE.id],
       });
     }
 
@@ -325,7 +411,7 @@ export default {
     try {
       switch (path) {
         case "/run":
-          return json(await runOnce(env));
+          return json(await runOnce(env, { linkedin: new URL(request.url).searchParams.has("linkedin") }));
 
         case "/state": {
           const [shas, seen] = await Promise.all([loadShas(env.STATE), loadSeen(env.STATE)]);
