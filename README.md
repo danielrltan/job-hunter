@@ -1,6 +1,6 @@
 # job-hunter
 
-Watches eleven GitHub internship-listing repos and LinkedIn, and pushes a Telegram message
+Watches eleven GitHub internship-listing repos and pushes a Telegram message
 within ~2 minutes of a relevant new posting appearing.
 
 Filtered for SWE / AI / ML / data / product internships, for someone based in
@@ -43,7 +43,7 @@ the next tick to retry the same commits rather than silently dropping jobs.
 | `zapplyjobs/awesome-ml-internships-2027` | markdown | auto-scraped, mostly not in Simplify, has a sponsor column |
 | `zapplyjobs/Canada-Internships-2027` | markdown | Canadian internships and co-ops |
 | `zapplyjobs/Internships-2027` | markdown | README is big enough that GitHub omits many diffs — partial coverage |
-| LinkedIn job search | HTML | logged-out, every 30 min, last 2 h — see below |
+| LinkedIn job search | HTML | **off**: LinkedIn refuses Cloudflare — see below |
 
 ### LinkedIn
 
@@ -61,6 +61,11 @@ go through the same filter and dedupe as everything else.
 - Only search cards are read. The per-posting detail endpoint is
   rate-limited far harder.
 - `/run?key=…&linkedin` forces a poll.
+
+**Currently off** (`LINKEDIN_ENABLED` in `src/config.ts`). From a home
+connection the search answers; from the deployed Worker every search got a
+429 on its first request. Running it needs a residential runner that posts
+cards to the Worker.
 
 These repos roll over each year (`2026-` → `2027-`). GitHub's API follows the
 rename automatically, so nothing breaks; update `src/config.ts` when convenient

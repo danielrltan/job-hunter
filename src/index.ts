@@ -1,6 +1,7 @@
 import { handleCommand } from "./commands";
 import {
   HEARTBEAT_DAYS,
+  LINKEDIN_ENABLED,
   LINKEDIN_EVERY_MINUTES,
   LINKEDIN_SEARCHES,
   LINKEDIN_STALE_HOURS,
@@ -381,7 +382,7 @@ function json(body: unknown, status = 200): Response {
 export default {
   async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
     const minute = new Date(controller.scheduledTime).getUTCMinutes();
-    await runOnce(env, { linkedin: minute % LINKEDIN_EVERY_MINUTES === 0 });
+    await runOnce(env, { linkedin: LINKEDIN_ENABLED && minute % LINKEDIN_EVERY_MINUTES === 0 });
   },
 
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -393,7 +394,7 @@ export default {
       return json({
         ok: true,
         ready: missingSecrets(env).length === 0,
-        sources: [...SOURCES.map((s) => s.id), LINKEDIN_SOURCE.id],
+        sources: [...SOURCES.map((s) => s.id), ...(LINKEDIN_ENABLED ? [LINKEDIN_SOURCE.id] : [])],
       });
     }
 

@@ -399,6 +399,12 @@ export const LINKEDIN_SEARCHES = [
   { keywords: "machine learning intern", location: "United States" },
   { keywords: "software intern", location: "Canada" },
 ];
+/**
+ * Off: LinkedIn answers Cloudflare's addresses with 429 on the first request
+ * (every search, first deployed tick, 2026-10-12) while a home connection gets
+ * results. The source needs a residential runner; `/run?…&linkedin` still polls.
+ */
+export const LINKEDIN_ENABLED = false;
 export const LINKEDIN_EVERY_MINUTES = 30;
 export const LINKEDIN_WINDOW_SECONDS = 2 * 3600;
 /** Say so in Telegram when every LinkedIn search has been refused for this long. */
